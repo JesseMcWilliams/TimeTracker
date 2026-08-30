@@ -13,6 +13,8 @@
   } from './store.svelte'
   import { formatDateTime, formatDuration } from './dateUtils'
 
+  let { onBack }: { onBack: () => void } = $props()
+
   let busy = $state(false)
   let purgeMessage = $state('')
   let purgeError = $state('')
@@ -152,6 +154,8 @@
 </script>
 
 <section class="panel">
+  <button onclick={onBack}>&larr; Back to Admin</button>
+
   <h2>Trash</h2>
 
   <div class="row">
