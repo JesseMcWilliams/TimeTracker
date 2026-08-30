@@ -108,6 +108,7 @@ pub fn update_contract_details(
     external_id: Option<String>,
     start_date: Option<String>,
     notes: Option<String>,
+    filename_date: String,
 ) -> CmdResult<()> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
     contracts::update_contract_details(
@@ -118,6 +119,7 @@ pub fn update_contract_details(
         external_id.as_deref(),
         start_date.as_deref(),
         notes.as_deref(),
+        &filename_date,
     )
 }
 

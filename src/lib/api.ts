@@ -26,6 +26,8 @@ export interface Client {
   archivedAt: string | null
 }
 
+export type FilenameDate = 'start' | 'end'
+
 export interface Contract {
   id: number
   clientId: number
@@ -34,6 +36,7 @@ export interface Contract {
   externalId: string | null
   startDate: string | null
   notes: string | null
+  filenameDate: FilenameDate
   archivedAt: string | null
   currentRate: number | null
 }
@@ -261,6 +264,7 @@ export const api = {
     contractId: number,
     name: string,
     currency: string,
+    filenameDate: FilenameDate,
     externalId?: string,
     startDate?: string,
     notes?: string,
@@ -272,6 +276,7 @@ export const api = {
       externalId: externalId ?? null,
       startDate: startDate ?? null,
       notes: notes ?? null,
+      filenameDate,
     }),
   archiveContract: (contractId: number) =>
     invoke<void>('archive_contract', { contractId }),

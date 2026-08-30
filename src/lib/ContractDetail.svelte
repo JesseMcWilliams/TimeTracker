@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { api } from './api'
+  import { api, type FilenameDate } from './api'
   import { store, navGuard, refreshContracts } from './store.svelte'
   import { isDirty } from './dateUtils'
 
@@ -13,6 +13,7 @@
   let editExternalId = $state('')
   let editStartDate = $state('')
   let editNotes = $state('')
+  let editFilenameDate = $state<FilenameDate>('end')
   let initializedFor = $state<number | null>(null)
 
   let newRate = $state('')
@@ -25,6 +26,7 @@
       editExternalId = contract.externalId ?? ''
       editStartDate = contract.startDate ?? ''
       editNotes = contract.notes ?? ''
+      editFilenameDate = contract.filenameDate
       initializedFor = contract.id
     }
   })
@@ -32,13 +34,14 @@
   let dirty = $derived(
     contract
       ? isDirty(
-          { editName, editCurrency, editExternalId, editStartDate, editNotes },
+          { editName, editCurrency, editExternalId, editStartDate, editNotes, editFilenameDate },
           {
             editName: contract.name,
             editCurrency: contract.currency,
             editExternalId: contract.externalId ?? '',
             editStartDate: contract.startDate ?? '',
             editNotes: contract.notes ?? '',
+            editFilenameDate: contract.filenameDate,
           },
         )
       : false,
@@ -56,6 +59,7 @@
         contract.id,
         editName.trim(),
         editCurrency.trim(),
+        editFilenameDate,
         editExternalId.trim() || undefined,
         editStartDate || undefined,
         editNotes.trim() || undefined,
@@ -126,6 +130,13 @@
     <div class="field">
       <label for="edit-notes">Notes</label>
       <input id="edit-notes" bind:value={editNotes} style="flex: 1" />
+    </div>
+    <div class="field">
+      <label for="edit-filename-date">Timesheet filename date</label>
+      <select id="edit-filename-date" bind:value={editFilenameDate}>
+        <option value="end">Last day of period (default)</option>
+        <option value="start">First day of period</option>
+      </select>
     </div>
     <div class="row">
       <button

@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::path::Path;
 
-use chrono::{DateTime, Local, NaiveDate};
+use chrono::{DateTime, Local, NaiveDate, TimeZone, Utc};
 use rusqlite::{params, Connection};
 use rust_xlsxwriter::{Format, Workbook};
 use serde::Serialize;
@@ -24,6 +24,7 @@ struct ContractInfo {
     client_name: String,
     week_start: String,
     week_end: String,
+    filename_date: String,
 }
 
 struct EntryRow {
@@ -41,12 +42,28 @@ fn sanitize(s: &str) -> String {
         .collect()
 }
 
-/// Formats a stored UTC RFC3339 timestamp as a local, 24-hour "HH:MM" time (date is
-/// shown separately in its own column, so this is deliberately time-only).
-fn local_time_hm(rfc3339: &str) -> String {
-    DateTime::parse_from_rfc3339(rfc3339)
-        .map(|dt| dt.with_timezone(&Local).format("%H:%M").to_string())
-        .unwrap_or_default()
+/// Rounds a stored UTC RFC3339 timestamp to the nearest 5-minute mark — down for a
+/// start time, up for an end time (e.g. :07 becomes :05 as a start, :10 as an end) —
+/// and formats the result as a local, 24-hour "HH:MM" time (date is shown separately
+/// in its own column, so this is deliberately time-only). Rounding is done in UTC
+/// epoch-seconds terms, which is equivalent to rounding the local wall-clock minute
+/// since every real-world timezone offset is itself a whole number of minutes.
+fn local_time_hm_rounded(rfc3339: &str, round_up: bool) -> String {
+    const INTERVAL_SECS: i64 = 5 * 60;
+    let Ok(dt) = DateTime::parse_from_rfc3339(rfc3339) else {
+        return String::new();
+    };
+    let secs = dt.timestamp();
+    let rounded_secs = if round_up {
+        secs.div_euclid(INTERVAL_SECS) * INTERVAL_SECS
+            + if secs.rem_euclid(INTERVAL_SECS) == 0 { 0 } else { INTERVAL_SECS }
+    } else {
+        secs.div_euclid(INTERVAL_SECS) * INTERVAL_SECS
+    };
+    match Utc.timestamp_opt(rounded_secs, 0) {
+        chrono::LocalResult::Single(rounded) => rounded.with_timezone(&Local).format("%H:%M").to_string(),
+        _ => String::new(),
+    }
 }
 
 /// Formats a stored UTC RFC3339 timestamp as its LOCAL calendar date. Using the raw
@@ -64,15 +81,20 @@ fn duration_hm(secs: i64) -> String {
 }
 
 /// Generates one .xlsx timesheet per contract that has entries in the resolved period,
-/// named `{period-start}_{client}_{yourFullName}.xlsx`. For "week" periods, each
-/// contract's range is computed from its own client's `week_start`/`week_end` (so a
-/// client billed Sun-Sat gets a Sun-Sat sheet even if another client uses Mon-Sun);
-/// "month" periods use the same calendar month for everyone. Contracts with no entries
-/// in their resolved period are skipped rather than producing an empty file. Rate and
-/// Amount columns are only included when `include_rate_amount` is set — by default the
-/// sheet is just Date/Start/End/Hours/Category/Notes. `contract_id` restricts output to
-/// a single contract; otherwise `client_id` restricts to that client's contracts; if
-/// neither is set, every active contract is considered (contract_id wins if both are set).
+/// named `{date}_{client}_{contract}_{yourFullName}.xlsx`, where `{date}` is either
+/// the first or last day of that contract's resolved period depending on its own
+/// `filename_date` setting ("start" or "end"; "end" — the last day — is the default).
+/// For "week" periods, each contract's range is computed from its own client's
+/// `week_start`/`week_end` (so a client billed Sun-Sat gets a Sun-Sat sheet even if
+/// another client uses Mon-Sun); "month" periods use the same calendar month for
+/// everyone. Contracts with no entries in their resolved period are skipped rather
+/// than producing an empty file. Rate and Amount columns are only included when
+/// `include_rate_amount` is set — by default the sheet is just
+/// Date/Start/End/Hours/Category/Notes, with Start/End times rounded to the nearest 5
+/// minutes (down for start, up for end) for readability. `contract_id` restricts
+/// output to a single contract; otherwise `client_id` restricts to that client's
+/// contracts; if neither is set, every active contract is considered (contract_id
+/// wins if both are set).
 pub fn generate_timesheets(
     conn: &Connection,
     period: &str,
@@ -85,7 +107,7 @@ pub fn generate_timesheets(
 ) -> DomainResult<Vec<TimesheetFile>> {
     let reference: NaiveDate = reference_date.parse().map_err(|e| format!("invalid date: {e}"))?;
 
-    let mut sql = "SELECT c.id, c.name, cl.name, cl.week_start, cl.week_end
+    let mut sql = "SELECT c.id, c.name, cl.name, cl.week_start, cl.week_end, c.filename_date
          FROM contracts c JOIN clients cl ON cl.id = c.client_id
          WHERE c.archived_at IS NULL"
         .to_string();
@@ -108,6 +130,7 @@ pub fn generate_timesheets(
                 client_name: row.get(2)?,
                 week_start: row.get(3)?,
                 week_end: row.get(4)?,
+                filename_date: row.get(5)?,
             })
         })
         .map_err(|e| e.to_string())?
@@ -187,9 +210,15 @@ pub fn generate_timesheets(
             total_amount += amount;
 
             worksheet.write(row, 0, local_date(&entry.started_at)).map_err(|e| e.to_string())?;
-            worksheet.write(row, 1, local_time_hm(&entry.started_at)).map_err(|e| e.to_string())?;
             worksheet
-                .write(row, 2, entry.ended_at.as_deref().map(local_time_hm).unwrap_or_default())
+                .write(row, 1, local_time_hm_rounded(&entry.started_at, false))
+                .map_err(|e| e.to_string())?;
+            worksheet
+                .write(
+                    row,
+                    2,
+                    entry.ended_at.as_deref().map(|e| local_time_hm_rounded(e, true)).unwrap_or_default(),
+                )
                 .map_err(|e| e.to_string())?;
             worksheet.write(row, 3, duration_hm(secs)).map_err(|e| e.to_string())?;
             worksheet
@@ -219,15 +248,19 @@ pub fn generate_timesheets(
                 .map_err(|e| e.to_string())?;
         }
 
+        let filename_date = if contract.filename_date == "start" { start } else { end };
         let base_name = format!(
-            "{}_{}_{}",
-            start.format("%Y-%m-%d"),
+            "{}_{}_{}_{}",
+            filename_date.format("%Y-%m-%d"),
             sanitize(&contract.client_name),
+            sanitize(&contract.name),
             sanitize(user_full_name)
         );
         let mut filename = format!("{base_name}.xlsx");
-        if used_names.contains(&filename) {
-            filename = format!("{base_name}_{}.xlsx", sanitize(&contract.name));
+        let mut suffix = 2;
+        while used_names.contains(&filename) {
+            filename = format!("{base_name}_{suffix}.xlsx");
+            suffix += 1;
         }
         used_names.insert(filename.clone());
 
@@ -243,4 +276,35 @@ pub fn generate_timesheets(
     }
 
     Ok(results)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Builds an RFC3339 timestamp for the given LOCAL wall-clock time, so these tests
+    /// pass regardless of the machine's configured timezone (rounding is verified
+    /// entirely in terms of local hour/minute, never assuming Local == UTC).
+    fn local_rfc3339(hour: u32, minute: u32, second: u32) -> String {
+        Local.with_ymd_and_hms(2026, 8, 24, hour, minute, second).unwrap().to_rfc3339()
+    }
+
+    #[test]
+    fn start_times_round_down_to_the_nearest_5_minutes() {
+        assert_eq!(local_time_hm_rounded(&local_rfc3339(7, 7, 0), false), "07:05");
+        assert_eq!(local_time_hm_rounded(&local_rfc3339(7, 9, 59), false), "07:05");
+        // Already on a 5-minute mark: stays put.
+        assert_eq!(local_time_hm_rounded(&local_rfc3339(7, 5, 0), false), "07:05");
+        assert_eq!(local_time_hm_rounded(&local_rfc3339(7, 0, 30), false), "07:00");
+    }
+
+    #[test]
+    fn end_times_round_up_to_the_nearest_5_minutes() {
+        assert_eq!(local_time_hm_rounded(&local_rfc3339(7, 7, 0), true), "07:10");
+        assert_eq!(local_time_hm_rounded(&local_rfc3339(7, 1, 0), true), "07:05");
+        // Already on a 5-minute mark: stays put (does not bump to the next mark).
+        assert_eq!(local_time_hm_rounded(&local_rfc3339(7, 5, 0), true), "07:05");
+        // Rounding up correctly rolls over an hour boundary.
+        assert_eq!(local_time_hm_rounded(&local_rfc3339(7, 57, 0), true), "08:00");
+    }
 }

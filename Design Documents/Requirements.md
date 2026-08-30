@@ -73,50 +73,60 @@ mobile clients, remote import sources (e.g. OneNote/Graph).
   "all clients" → one client → one contract → that contract's raw entries for the
   period.
 - FR-21: "Create Timesheet" writes one .xlsx file per contract with entries in the
-  selected period, named `{period-start}_{client}_{yourFullName}.xlsx`, to the user's
-  configured output folder. Columns: Date, Start Time (24h), End Time (24h), HH:MM,
-  Category, Notes, with Rate/Amount as an opt-in extra pair of columns, formatted as
-  currency. Column widths are pre-sized so no manual resizing is needed.
+  selected period, named `{date}_{client}_{contract}_{yourFullName}.xlsx`, to the
+  user's configured output folder. Columns: Date, Start Time (24h), End Time (24h),
+  HH:MM, Category, Notes, with Rate/Amount as an opt-in extra pair of columns,
+  formatted as currency. Column widths are pre-sized so no manual resizing is needed.
 - FR-22: When "Create Timesheet" is used while drilled into a specific client or
   contract on the Reports page, it is scoped to just that client/contract instead of
   every contract with activity in the period.
 - FR-23: Each contract's timesheet period is computed from its own client's
   week-start/week-end (a report's aggregate week view always uses Mon–Sun regardless
   of any one client's setting, since that view mixes multiple clients at once).
+- FR-24: The `{date}` in a timesheet's filename is either the first or last day of
+  that contract's resolved period, controlled by a per-contract "Timesheet filename
+  date" setting (First day of period / Last day of period), defaulting to the last
+  day.
+- FR-25: In the exported timesheet, Start Time is always rounded DOWN to the nearest
+  5-minute mark and End Time is always rounded UP to the nearest 5-minute mark (e.g.
+  `:07` becomes `:05` as a start time, `:10` as an end time). This only affects the
+  displayed Start/End Time columns — the billed HH:MM duration and any Rate/Amount
+  columns still reflect the entry's actual billed duration (including the client's
+  minimum-increment rounding), not the rounded display times.
 
 ### 3.6 Backup, restore, purge
-- FR-24: "Backup Data" writes one timestamped CSV per data type (Clients, Contracts,
+- FR-26: "Backup Data" writes one timestamped CSV per data type (Clients, Contracts,
   Contract Rates, Categories, Time Entries) to the output folder.
-- FR-25: "Restore Data" reads those CSVs back in, adding only rows that don't already
+- FR-27: "Restore Data" reads those CSVs back in, adding only rows that don't already
   exist by id — never overwriting or duplicating existing rows, so it is safe to run
   more than once.
-- FR-26: Trash (soft-deleted entries; archived contracts/clients/categories) can be
+- FR-28: Trash (soft-deleted entries; archived contracts/clients/categories) can be
   permanently purged. Every purge always writes a CSV backup of exactly what's being
   removed first, always asks for confirmation, and only purges past a "cannot purge —
   other records still reference this" gate: if some other row still depends on a
   candidate, that candidate is skipped (not purged) and reported by name/count, while
   everything else in the batch still proceeds.
-- FR-27: "Purge All" backs up every data type, then permanently deletes all clients,
+- FR-29: "Purge All" backs up every data type, then permanently deletes all clients,
   contracts, categories, and time entries, while preserving the User profile.
-- FR-28: The Trash page shows each type (Deleted Time Entries, Archived Contracts,
+- FR-30: The Trash page shows each type (Deleted Time Entries, Archived Contracts,
   Archived Clients, Archived Categories) as a count behind a clickable name; opening a
   type shows its list and is where that type's Purge action lives.
 
 ### 3.7 User profile & app behavior
-- FR-29: A User profile holds first/last/full name (full name defaults to
+- FR-31: A User profile holds first/last/full name (full name defaults to
   "Last, First"), email, output folder (defaulting to the OS Documents folder, with a
   native folder picker), output format preference, default start page, and window
   size/position preferences.
-- FR-30: Launch position supports 9 named screen positions plus a "Custom" position
+- FR-32: Launch position supports 9 named screen positions plus a "Custom" position
   that remembers an exact remembered (x, y), settable via "use current position & size
   as default".
-- FR-31: A Colors section offers System/Light/Dark/Custom themes; Custom lets the user
+- FR-33: A Colors section offers System/Light/Dark/Custom themes; Custom lets the user
   pick background, text, button-background, and button-text colors independently, live
   previewed as they're changed.
-- FR-32: The User page shows the current on-disk database file size.
-- FR-33: A dirty-state Save button is visually distinct (greyed out) whenever nothing
+- FR-34: The User page shows the current on-disk database file size.
+- FR-35: A dirty-state Save button is visually distinct (greyed out) whenever nothing
   has changed since it was loaded, on every editable form in the app.
-- FR-34: Navigating away from a page with unsaved changes (including via the app's own
+- FR-36: Navigating away from a page with unsaved changes (including via the app's own
   back/nav buttons) prompts "Leave without saving?" before discarding them.
 
 ## 4. Non-Functional Requirements

@@ -53,7 +53,9 @@ clients(id, name, notes, prime, sub, external_id, week_start, week_end,
         default_tracking_code_id, minimum_increment_minutes, archived_at)
 
 contracts(id, client_id, name, currency, external_id, start_date, notes,
-          archived_at, created_at)
+          filename_date['start'|'end'], archived_at, created_at)
+  -- filename_date picks which end of a resolved timesheet period ("start" or "end")
+  -- names the exported file; defaults to "end" (the last day of the period).
 
 contract_rates(id, contract_id, hourly_rate, effective_from, created_at)
   -- append-only history; "current rate" = latest effective_from/id per contract.

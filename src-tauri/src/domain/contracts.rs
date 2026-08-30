@@ -29,6 +29,9 @@ pub struct Contract {
     pub external_id: Option<String>,
     pub start_date: Option<String>,
     pub notes: Option<String>,
+    /// Which end of the resolved timesheet period ("start" or "end") is used for the
+    /// date in a generated timesheet's filename. Defaults to "end".
+    pub filename_date: String,
     pub archived_at: Option<String>,
     pub current_rate: Option<f64>,
 }
@@ -167,10 +170,13 @@ pub fn update_contract_details(
     external_id: Option<&str>,
     start_date: Option<&str>,
     notes: Option<&str>,
+    filename_date: &str,
 ) -> DomainResult<()> {
     conn.execute(
-        "UPDATE contracts SET name = ?1, currency = ?2, external_id = ?3, start_date = ?4, notes = ?5 WHERE id = ?6",
-        params![name, currency, external_id, start_date, notes, contract_id],
+        "UPDATE contracts SET name = ?1, currency = ?2, external_id = ?3, start_date = ?4, notes = ?5,
+            filename_date = ?6
+         WHERE id = ?7",
+        params![name, currency, external_id, start_date, notes, filename_date, contract_id],
     )
     .map_err(|e| e.to_string())?;
     Ok(())
@@ -204,10 +210,11 @@ pub fn current_rate(conn: &Connection, contract_id: i64) -> DomainResult<f64> {
 
 pub fn list_contracts(conn: &Connection, include_archived: bool) -> DomainResult<Vec<Contract>> {
     let sql = if include_archived {
-        "SELECT id, client_id, name, currency, external_id, start_date, notes, archived_at FROM contracts ORDER BY name"
+        "SELECT id, client_id, name, currency, external_id, start_date, notes, filename_date, archived_at
+         FROM contracts ORDER BY name"
     } else {
-        "SELECT id, client_id, name, currency, external_id, start_date, notes, archived_at FROM contracts
-         WHERE archived_at IS NULL ORDER BY name"
+        "SELECT id, client_id, name, currency, external_id, start_date, notes, filename_date, archived_at
+         FROM contracts WHERE archived_at IS NULL ORDER BY name"
     };
     let mut stmt = conn.prepare(sql).map_err(|e| e.to_string())?;
     let contracts = stmt
@@ -220,7 +227,8 @@ pub fn list_contracts(conn: &Connection, include_archived: bool) -> DomainResult
                 row.get::<_, Option<String>>(4)?,
                 row.get::<_, Option<String>>(5)?,
                 row.get::<_, Option<String>>(6)?,
-                row.get::<_, Option<String>>(7)?,
+                row.get::<_, String>(7)?,
+                row.get::<_, Option<String>>(8)?,
             ))
         })
         .map_err(|e| e.to_string())?
@@ -229,7 +237,7 @@ pub fn list_contracts(conn: &Connection, include_archived: bool) -> DomainResult
 
     contracts
         .into_iter()
-        .map(|(id, client_id, name, currency, external_id, start_date, notes, archived_at)| {
+        .map(|(id, client_id, name, currency, external_id, start_date, notes, filename_date, archived_at)| {
             Ok(Contract {
                 id,
                 client_id,
@@ -238,6 +246,7 @@ pub fn list_contracts(conn: &Connection, include_archived: bool) -> DomainResult
                 external_id,
                 start_date,
                 notes,
+                filename_date,
                 archived_at,
                 current_rate: current_rate(conn, id).ok(),
             })
