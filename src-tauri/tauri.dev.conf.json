@@ -1,0 +1,16 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "TimeTracker Dev",
+  "identifier": "dev.jbannerman.timetracker.dev",
+  "app": {
+    "windows": [
+      {
+        "title": "TimeTracker (Dev)",
+        "width": 800,
+        "height": 600,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ]
+  }
+}

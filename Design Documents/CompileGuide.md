@@ -35,8 +35,10 @@ The Tauri CLI itself does **not** need to be installed globally — it's a
 4. From the project root, install frontend dependencies and run the dev build:
    ```
    npm install
-   npx tauri dev
+   npm run tauri:dev
    ```
+   (uses a separate app identifier from a release build, so it won't touch an
+   installed release's database — see the README's Development section.)
 
 ## 3. macOS
 
@@ -49,8 +51,10 @@ The Tauri CLI itself does **not** need to be installed globally — it's a
 3. From the project root:
    ```
    npm install
-   npx tauri dev
+   npm run tauri:dev
    ```
+   (uses a separate app identifier from a release build, so it won't touch an
+   installed release's database — see the README's Development section.)
 
 ## 4. Linux
 
@@ -73,8 +77,10 @@ names for your package manager before proceeding.
 3. From the project root:
    ```
    npm install
-   npx tauri dev
+   npm run tauri:dev
    ```
+   (uses a separate app identifier from a release build, so it won't touch an
+   installed release's database — see the README's Development section.)
 
 ## 5. Running the test suite
 

@@ -108,8 +108,9 @@ full per-OS prerequisites and troubleshooting.
 ## Development
 
 ```
-# Run the app in dev mode (hot-reloading frontend + auto-rebuilding backend)
-npx tauri dev
+# Run the app in dev mode, completely isolated from an installed release
+# (separate app identifier -> separate database and settings, see below)
+npm run tauri:dev
 
 # Rust unit tests
 cd src-tauri && cargo test --lib
@@ -117,6 +118,17 @@ cd src-tauri && cargo test --lib
 # Frontend type-checking
 npm run check
 ```
+
+**Isolated from an installed release**: `npm run tauri:dev` runs `tauri dev` with
+`src-tauri/tauri.dev.conf.json` merged in, which overrides the app `identifier` (to
+`dev.jbannerman.timetracker.dev`) and window title ("TimeTracker (Dev)") for dev runs
+only. Since Tauri derives the per-app data directory (where the SQLite database
+lives) from the identifier, a dev build never touches an installed release's data —
+you can have a released version installed and actively in use while developing
+against a completely separate, throwaway database. Plain `npx tauri dev` (without
+`-c`) still works but shares the release's identifier/database, so prefer the npm
+script. `npm run tauri:build` (or `npx tauri build`) is unaffected — release builds
+always use the real `dev.jbannerman.timetracker` identifier from `tauri.conf.json`.
 
 ## Deploying
 
