@@ -52,6 +52,8 @@ In-depth project documentation lives in [`Design Documents/`](./Design%20Documen
   recent vulnerability assessment.
 - [`CompileGuide.md`](./Design%20Documents/CompileGuide.md) — detailed, per-OS
   build-from-source instructions (summarized below).
+- [`ReleaseProcess.md`](./Design%20Documents/ReleaseProcess.md) — branching
+  convention, versioning, and how to cut a release (summarized below).
 
 ## Dependencies
 
@@ -155,6 +157,20 @@ and a suggested `gh release create` workflow for publishing one.
 `src-tauri/migrations/` and are embedded into the binary at compile time
 (`include_str!`), then applied automatically and in order the first time a built app
 opens its database — there's no separate migration step to run at deploy time.
+
+## Branching & versioning
+
+New work happens on a `feature/...` or `fix/...` branch off `main`, merged back once
+tests pass; `main` itself should always be releasable. To cut a release, bump the
+version first (updates `tauri.conf.json` and `Cargo.toml` together):
+
+```
+npm run bump-version -- patch   # or: minor | major | an exact X.Y.Z
+```
+
+then follow the steps it prints (commit, tag, build, publish). Full details,
+including the hotfix path for patching an already-released version, are in
+[`Design Documents/ReleaseProcess.md`](./Design%20Documents/ReleaseProcess.md).
 
 ## Where your data lives
 
