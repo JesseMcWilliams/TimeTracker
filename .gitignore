@@ -1,0 +1,29 @@
+# Rust / Tauri
+/src-tauri/target/
+
+# Node / frontend
+node_modules/
+dist/
+dist-ssr/
+.vite/
+*.local
+npm-debug.log*
+
+# Tauri build output
+/src-tauri/gen/
+
+# Local data (do not commit the user's actual time-tracking database)
+*.sqlite
+*.sqlite3
+*.db
+
+# Editor/OS
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+
+# Env
+.env
+.env.local

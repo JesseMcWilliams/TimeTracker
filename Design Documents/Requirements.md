@@ -1,0 +1,137 @@
+# TimeTracker — Requirements
+
+## 1. Purpose
+
+TimeTracker is a self-contained desktop application for an independent consultant who
+bills time against multiple clients and contracts. It replaces ad-hoc spreadsheets with
+a local, single-user tool that tracks time (via a live timer or manual entry), applies
+each client's own billing rules, and exports client-ready timesheets and internal
+reports without depending on any external service.
+
+## 2. Scope
+
+- Single user, single machine, fully offline. No accounts, no server, no network calls.
+- All data lives in one local SQLite database file; all exports are local files
+  (.xlsx/.csv) written to a folder the user chooses.
+- Windows, macOS, and Linux desktop (Tauri v2 + WebView).
+
+Out of scope: multi-user collaboration, cloud sync, invoicing/payment processing,
+mobile clients, remote import sources (e.g. OneNote/Graph).
+
+## 3. Functional Requirements
+
+### 3.1 Clients
+- FR-1: Create, view, and edit a Client with: name, notes, Prime, Sub, external ID,
+  week-start/week-end weekday, default category, minimum billable increment (minutes).
+- FR-2: New clients default to a 15-minute minimum billable increment.
+- FR-3: Archive a client (soft delete) and restore it later; archived clients are
+  excluded from active pickers but still resolvable by name wherever historical data
+  references them (e.g. struck-through in Entries).
+- FR-4: The Clients list shows Client, Prime, Sub, Week Start, Min Increment, and Notes.
+
+### 3.2 Contracts
+- FR-5: Create, view, and edit a Contract under a Client: name, currency, external ID,
+  start date, notes.
+- FR-6: A contract's hourly rate has history (`contract_rates`) — updating the rate
+  inserts a new effective-dated row rather than mutating the old one, so past entries
+  keep the rate that was in effect when they were recorded.
+- FR-7: Archive/restore a contract, independent of its client's archived state.
+- FR-8: The Contracts list supports sorting and free-text filtering (client/contract
+  name), an optional Rate column, and displays Notes.
+
+### 3.3 Categories (internal name: tracking codes)
+- FR-9: Categories are scoped to a client and are always optional on a time entry, even
+  when the client has categories defined — never a hard requirement.
+- FR-10: A category can be set as a client's default, auto-applied when starting a
+  timer or quick-timer for that client.
+- FR-11: Archive/restore a category.
+
+### 3.4 Time entries
+- FR-12: Start/stop one or more concurrent timers across different contracts. Starting
+  a new timer while others are running is allowed and only produces an advisory
+  warning (work can legitimately span multiple clients at once).
+- FR-13: Create/edit manual entries with start time, end time, category, and notes.
+  The UI blocks selecting an end time before the start time.
+- FR-14: A still-running entry can have its category/notes edited and can be stopped
+  from its detail view; start/end times only become editable once it has been stopped.
+- FR-15: Soft-delete ("Trash") an entry with restore; deleting never removes the row
+  outright.
+- FR-16: An entry's billable duration rounds UP to the client's minimum increment
+  (e.g. a 22-minute entry bills as 30 minutes for a 15-minute-increment client). A
+  client with no minimum set bills the exact elapsed time.
+- FR-17: The Entries list defaults to the last 2 weeks, with Month/3-months/All filters,
+  plus Contract and Category filters that narrow the same list, and a totals row
+  (duration, and per-currency amount when amounts are shown).
+- FR-18: Bulk-select entries on the Entries page to bulk-delete or bulk-set category.
+- FR-19: Bulk import time entries from CSV or XLSX (including multi-tab workbooks),
+  targeted at one contract, with flexible date parsing and automatic creation of any
+  category name encountered that doesn't already exist for that client.
+
+### 3.5 Reports & exports
+- FR-20: A Reports page shows total hours (and, optionally, amounts) for a selected
+  Week or Month, broken down by client then contract, with click-to-drill-down from
+  "all clients" → one client → one contract → that contract's raw entries for the
+  period.
+- FR-21: "Create Timesheet" writes one .xlsx file per contract with entries in the
+  selected period, named `{period-start}_{client}_{yourFullName}.xlsx`, to the user's
+  configured output folder. Columns: Date, Start Time (24h), End Time (24h), HH:MM,
+  Category, Notes, with Rate/Amount as an opt-in extra pair of columns, formatted as
+  currency. Column widths are pre-sized so no manual resizing is needed.
+- FR-22: When "Create Timesheet" is used while drilled into a specific client or
+  contract on the Reports page, it is scoped to just that client/contract instead of
+  every contract with activity in the period.
+- FR-23: Each contract's timesheet period is computed from its own client's
+  week-start/week-end (a report's aggregate week view always uses Mon–Sun regardless
+  of any one client's setting, since that view mixes multiple clients at once).
+
+### 3.6 Backup, restore, purge
+- FR-24: "Backup Data" writes one timestamped CSV per data type (Clients, Contracts,
+  Contract Rates, Categories, Time Entries) to the output folder.
+- FR-25: "Restore Data" reads those CSVs back in, adding only rows that don't already
+  exist by id — never overwriting or duplicating existing rows, so it is safe to run
+  more than once.
+- FR-26: Trash (soft-deleted entries; archived contracts/clients/categories) can be
+  permanently purged. Every purge always writes a CSV backup of exactly what's being
+  removed first, always asks for confirmation, and only purges past a "cannot purge —
+  other records still reference this" gate: if some other row still depends on a
+  candidate, that candidate is skipped (not purged) and reported by name/count, while
+  everything else in the batch still proceeds.
+- FR-27: "Purge All" backs up every data type, then permanently deletes all clients,
+  contracts, categories, and time entries, while preserving the User profile.
+- FR-28: The Trash page shows each type (Deleted Time Entries, Archived Contracts,
+  Archived Clients, Archived Categories) as a count behind a clickable name; opening a
+  type shows its list and is where that type's Purge action lives.
+
+### 3.7 User profile & app behavior
+- FR-29: A User profile holds first/last/full name (full name defaults to
+  "Last, First"), email, output folder (defaulting to the OS Documents folder, with a
+  native folder picker), output format preference, default start page, and window
+  size/position preferences.
+- FR-30: Launch position supports 9 named screen positions plus a "Custom" position
+  that remembers an exact remembered (x, y), settable via "use current position & size
+  as default".
+- FR-31: A Colors section offers System/Light/Dark/Custom themes; Custom lets the user
+  pick background, text, button-background, and button-text colors independently, live
+  previewed as they're changed.
+- FR-32: The User page shows the current on-disk database file size.
+- FR-33: A dirty-state Save button is visually distinct (greyed out) whenever nothing
+  has changed since it was loaded, on every editable form in the app.
+- FR-34: Navigating away from a page with unsaved changes (including via the app's own
+  back/nav buttons) prompts "Leave without saving?" before discarding them.
+
+## 4. Non-Functional Requirements
+
+- NFR-1 (Self-contained): No external services, accounts, or network access required
+  at runtime. SQLite is bundled (no system dependency).
+- NFR-2 (Cross-platform): Must build and run on Windows, macOS, and Linux via Tauri.
+- NFR-3 (Data safety): Any operation that permanently deletes data (purge) must first
+  write a recoverable backup and require explicit confirmation naming what will be
+  lost.
+- NFR-4 (Correctness of money): Rate changes must never retroactively alter the
+  billing figures on already-recorded time entries (rate snapshotting).
+- NFR-5 (Local-only trust model): The app assumes a single trusted local user with
+  full OS-level access to their own files; it does not implement multi-user
+  authentication/authorization.
+- NFR-6 (Testability): Business-logic-bearing modules (rounding, rate snapshotting,
+  import parsing, purge dependency chains, backup/restore round-tripping) are covered
+  by automated Rust unit tests, not left to manual verification alone.
