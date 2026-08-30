@@ -144,6 +144,13 @@ trigger OS-level security warnings (e.g. Windows SmartScreen, macOS Gatekeeper) 
 end user first runs them — expected for personal/internal use, but something to revisit
 before distributing more broadly.
 
+**Keeping a copy of what you built**: [`releases/`](./releases) is a local, git-ignored
+folder for collecting the installers you actually want to keep (e.g. before handing one
+to a client or attaching it to a GitHub Release) — see
+[`releases/README.md`](./releases/README.md) for the file-naming convention
+(`TimeTracker-v{version}-{platform}-{arch}.{ext}`, organized one subfolder per version)
+and a suggested `gh release create` workflow for publishing one.
+
 **Database migrations ship with the app**: schema migrations live under
 `src-tauri/migrations/` and are embedded into the binary at compile time
 (`include_str!`), then applied automatically and in order the first time a built app

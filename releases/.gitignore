@@ -1,0 +1,7 @@
+# Compiled release artifacts (installers, .dmg/.AppImage/.deb/.rpm, etc.) are
+# intentionally not committed to git — they're large, regenerable from source, and
+# git is a poor place to store binaries. See README.md in this folder for the naming
+# convention to use when copying a build here.
+*
+!.gitignore
+!README.md
