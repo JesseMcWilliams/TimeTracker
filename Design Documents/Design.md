@@ -141,12 +141,16 @@ Key invariants enforced by design, not just convention:
 - `ReportsPanel.svelte` — Week/Month report with click-to-drill (all clients → one
   client → one contract → that contract's entries) and the scoped "Create Timesheet"
   action described in Requirements FR-21/22.
-- `AdminPanel.svelte` — the single top-nav "Admin" entry; a menu of three buttons
-  (User, Trash, Appearance), each navigating to its own sub-page. Grouping these
-  under one nav entry keeps the top nav from growing an item per settings-adjacent
-  page as more get added.
+- `AdminPanel.svelte` — the single top-nav "Admin" entry; a menu of four buttons
+  (User, Backup & Restore, Trash, Appearance), each navigating to its own sub-page.
+  Grouping these under one nav entry keeps the top nav from growing an item per
+  settings-adjacent page as more get added.
 - `UserPanel.svelte` — profile fields (name/email), output folder/format, database
-  size, Backup/Restore/Purge All. Reached via Admin → User.
+  size. Reached via Admin → User.
+- `BackupPanel.svelte` — Backup Data, Restore Data, Purge All. Reached via Admin →
+  Backup & Restore. Split out of `UserPanel.svelte` (a "your data" concern, not "who
+  you are") and has no `user_profile` fields of its own to save, so — unlike
+  User/Appearance — it doesn't need the spread-and-override save pattern below.
 - `AppearancePanel.svelte` — window size/position, default start page, and Colors.
   Reached via Admin → Appearance. Split out of what used to be `UserPanel.svelte`
   because "who you are" and "how the app looks/opens" are different enough concerns
