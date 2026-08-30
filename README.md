@@ -146,7 +146,11 @@ appropriate to the host OS (this project's `tauri.conf.json` sets `bundle.target
 `"all"`, so every bundle format supported on the current OS is produced):
 
 - **Windows** → an NSIS installer (`.exe`) and an `.msi` under
-  `bundle/nsis/` and `bundle/msi/`.
+  `bundle/nsis/` and `bundle/msi/`, **plus** a portable, no-install-needed executable
+  at `target/release/app.exe` itself (a side effect of the same build, before it even
+  gets bundled) — copy that one file anywhere and run it directly, no setup wizard or
+  admin rights required. It still relies on the WebView2 Runtime being present, same
+  as the installed version (virtually always true on a current Windows install).
 - **macOS** → an `.app` bundle and a `.dmg` disk image under `bundle/macos/` and
   `bundle/dmg/`.
 - **Linux** → `.deb` and `.rpm` packages and/or an `.AppImage`, depending on what's

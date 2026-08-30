@@ -53,9 +53,13 @@ Rough semver guidance pre-1.0 (where breaking changes are expected occasionally)
 2. Bump the version: `npm run bump-version -- <patch|minor|major|X.Y.Z>`, then follow
    the steps it prints (regenerate `Cargo.lock`, commit, tag `vX.Y.Z`, push).
 3. Build: `npm run build && npx tauri build` (Windows only from this machine — see
-   `CompileGuide.md` for building the macOS/Linux bundles on those OSes).
-4. Copy the resulting installer(s) into `releases/vX.Y.Z/`, renamed per
-   `releases/README.md`'s naming convention.
+   `CompileGuide.md` for building the macOS/Linux bundles on those OSes). On Windows
+   this produces three usable files in one pass: the NSIS installer, the MSI
+   installer, and — already sitting at `target/release/app.exe` as a side effect of
+   the same build, no extra step — the portable no-install executable.
+4. Copy the resulting installer(s) (and, on Windows, `target/release/app.exe` as the
+   portable variant) into `releases/vX.Y.Z/`, renamed per `releases/README.md`'s
+   naming convention.
 5. Publish: `gh release create vX.Y.Z releases/vX.Y.Z/* --title "vX.Y.Z" --notes "..."`
    (or upload additional platform builds to the same release later with
    `gh release upload vX.Y.Z <file>`).
