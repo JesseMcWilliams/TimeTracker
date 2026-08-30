@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { open } from '@tauri-apps/plugin-dialog'
+  import { open, confirm } from '@tauri-apps/plugin-dialog'
   import {
     api,
     START_PAGES,
@@ -238,9 +238,9 @@
 
   async function runPurgeAll() {
     if (
-      !confirm(
+      !(await confirm(
         'This will back up everything, then permanently delete ALL clients, contracts, categories, and time entries. Your User settings are kept. This cannot be undone. Continue?',
-      )
+      ))
     )
       return
     purgeAllBusy = true

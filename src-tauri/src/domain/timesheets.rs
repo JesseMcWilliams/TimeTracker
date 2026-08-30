@@ -277,21 +277,33 @@ fn write_timesheet_workbook(
     Ok((path, all.len() as i64))
 }
 
-/// Generates a timesheet. When scoped to a single `contract_id`, writes one .xlsx
-/// file for just that contract, named `{date}_{client}_{contract}_{yourFullName}.xlsx`.
-/// When scoped to a `client_id` only (no `contract_id`), writes a SINGLE combined
-/// .xlsx covering every one of that client's contracts in one sheet (with a Contract
-/// column identifying each row's contract), named `{date}_{client}_{yourFullName}.xlsx`
-/// — see `generate_combined_client_timesheet`. With neither set, every active
-/// contract gets its own file (contract_id wins if both are set). `{date}` is either
-/// the first or last day of the resolved period, per each contract's own
-/// `filename_date` setting ("start"/"end"; "end" — the last day — is the default).
-/// For "week" periods, the range is computed from the relevant client's own
-/// `week_start`/`week_end`; "month" periods use the same calendar month for everyone.
-/// Contracts with no entries in their resolved period are skipped rather than
-/// producing an empty file. Rate and Amount columns are only included when
-/// `include_rate_amount` is set, with Start/End times rounded to the nearest 5
-/// minutes (down for start, up for end) for readability.
+fn fetch_client_ids_with_active_contracts(conn: &Connection) -> DomainResult<Vec<i64>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT DISTINCT cl.id FROM contracts c JOIN clients cl ON cl.id = c.client_id
+             WHERE c.archived_at IS NULL ORDER BY cl.name",
+        )
+        .map_err(|e| e.to_string())?;
+    let rows = stmt.query_map([], |row| row.get::<_, i64>(0)).map_err(|e| e.to_string())?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+}
+
+/// Generates a timesheet. Scoped to a single `contract_id`, writes one .xlsx file for
+/// just that contract, named `{date}_{client}_{contract}_{yourFullName}.xlsx`.
+/// Otherwise (no `contract_id`), writes one COMBINED .xlsx per client — either just
+/// the one `client_id` given, or every client that has an active contract — covering
+/// all of that client's contracts in a single sheet, with a Contract column
+/// identifying each row (see `generate_combined_client_timesheet`); a client with
+/// only one contract still gets its own file, just without a Contract column, since
+/// there's nothing to distinguish. `{date}` is either the first or last day of the
+/// resolved period, per each contract's own `filename_date` setting ("start"/"end";
+/// "end" — the last day — is the default; for a multi-contract client, "start" is
+/// only used if every one of its contracts agrees). For "week" periods, the range is
+/// computed from the relevant client's own `week_start`/`week_end`; "month" periods
+/// use the same calendar month for everyone. A client/contract with no entries in its
+/// resolved period is skipped rather than producing an empty file. Rate and Amount
+/// columns are only included when `include_rate_amount` is set, with Start/End times
+/// rounded to the nearest 5 minutes (down for start, up for end) for readability.
 pub fn generate_timesheets(
     conn: &Connection,
     period: &str,
@@ -304,64 +316,99 @@ pub fn generate_timesheets(
 ) -> DomainResult<Vec<TimesheetFile>> {
     let reference: NaiveDate = reference_date.parse().map_err(|e| format!("invalid date: {e}"))?;
 
-    if let (Some(client_id), None) = (client_id, contract_id) {
-        return generate_combined_client_timesheet(
+    if let Some(contract_id) = contract_id {
+        return generate_single_contract_timesheet(
             conn,
             period,
             reference,
             output_folder,
             user_full_name,
             include_rate_amount,
-            client_id,
+            contract_id,
         );
     }
 
-    let contracts = fetch_active_contracts(conn, contract_id, client_id)?;
+    let client_ids = match client_id {
+        Some(id) => vec![id],
+        None => fetch_client_ids_with_active_contracts(conn)?,
+    };
+
     let mut used_names: HashSet<String> = HashSet::new();
     let mut results = Vec::new();
-
-    for contract in contracts {
-        let (start, end) = if period == "week" {
-            week_range(reference, parse_weekday(&contract.week_start), parse_weekday(&contract.week_end))
-        } else {
-            month_range(reference)
-        };
-        let (from, to) = to_rfc3339_bounds(start, end);
-        let entries = fetch_contract_entries(conn, contract.id, &from, &to)?;
-        if entries.is_empty() {
-            continue;
-        }
-
-        let filename_date = if contract.filename_date == "start" { start } else { end };
-        let base_name = format!(
-            "{}_{}_{}_{}",
-            filename_date.format("%Y-%m-%d"),
-            sanitize(&contract.client_name),
-            sanitize(&contract.name),
-            sanitize(user_full_name)
-        );
-        let filename = unique_filename(&base_name, &mut used_names);
-
-        let (path, entry_count) =
-            write_timesheet_workbook(output_folder, &filename, include_rate_amount, vec![(contract.name.clone(), entries)])?;
-
-        results.push(TimesheetFile {
-            path: path.to_string_lossy().to_string(),
-            client_name: contract.client_name,
-            contract_name: contract.name,
-            entry_count,
-        });
+    for id in client_ids {
+        results.extend(generate_combined_client_timesheet(
+            conn,
+            period,
+            reference,
+            output_folder,
+            user_full_name,
+            include_rate_amount,
+            id,
+            &mut used_names,
+        )?);
     }
-
     Ok(results)
 }
 
-/// Combines every one of a client's active contracts into a single timesheet, with a
-/// Contract column identifying which contract each row belongs to. Every contract
-/// under one client shares that client's `week_start`/`week_end`, so the resolved
-/// "week" period is identical for all of them — computed once, not per contract.
-/// Skips (does not write) any contract with no entries in the period; returns an
-/// empty result rather than an empty file if none of the client's contracts have any.
+fn generate_single_contract_timesheet(
+    conn: &Connection,
+    period: &str,
+    reference: NaiveDate,
+    output_folder: &str,
+    user_full_name: &str,
+    include_rate_amount: bool,
+    contract_id: i64,
+) -> DomainResult<Vec<TimesheetFile>> {
+    let Some(contract) = fetch_active_contracts(conn, Some(contract_id), None)?.into_iter().next() else {
+        return Ok(Vec::new());
+    };
+
+    let (start, end) = if period == "week" {
+        week_range(reference, parse_weekday(&contract.week_start), parse_weekday(&contract.week_end))
+    } else {
+        month_range(reference)
+    };
+    let (from, to) = to_rfc3339_bounds(start, end);
+    let entries = fetch_contract_entries(conn, contract.id, &from, &to)?;
+    if entries.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let filename_date = if contract.filename_date == "start" { start } else { end };
+    let base_name = format!(
+        "{}_{}_{}_{}",
+        filename_date.format("%Y-%m-%d"),
+        sanitize(&contract.client_name),
+        sanitize(&contract.name),
+        sanitize(user_full_name)
+    );
+    let filename = format!("{base_name}.xlsx");
+
+    let (path, entry_count) =
+        write_timesheet_workbook(output_folder, &filename, include_rate_amount, vec![(contract.name.clone(), entries)])?;
+
+    Ok(vec![TimesheetFile {
+        path: path.to_string_lossy().to_string(),
+        client_name: contract.client_name,
+        contract_name: contract.name,
+        entry_count,
+    }])
+}
+
+/// Combines every one of a client's active contracts into a single timesheet. A
+/// Contract column identifying each row's contract is added only when more than one
+/// contract actually has entries in the period (see `write_timesheet_workbook`) — a
+/// client with just one (active, or only-one-with-entries) contract gets a plain
+/// sheet with no Contract column, same shape as a directly contract-scoped file.
+/// Every contract under one client shares that client's `week_start`/`week_end`, so
+/// the resolved "week" period is identical for all of them — computed once, not per
+/// contract. Skips (does not write) any contract with no entries in the period;
+/// returns an empty result rather than an empty file if none of the client's
+/// contracts have any. `used_names` is shared across a whole `generate_timesheets`
+/// call so that, in the unlikely case two different clients' names sanitize to the
+/// same filename, the second gets a numeric suffix instead of silently overwriting
+/// the first.
+#[allow(clippy::too_many_arguments)]
 fn generate_combined_client_timesheet(
     conn: &Connection,
     period: &str,
@@ -370,6 +417,7 @@ fn generate_combined_client_timesheet(
     user_full_name: &str,
     include_rate_amount: bool,
     client_id: i64,
+    used_names: &mut HashSet<String>,
 ) -> DomainResult<Vec<TimesheetFile>> {
     let contracts = fetch_active_contracts(conn, None, Some(client_id))?;
     let Some(first) = contracts.first() else {
@@ -403,14 +451,15 @@ fn generate_combined_client_timesheet(
 
     let base_name =
         format!("{}_{}_{}", filename_date.format("%Y-%m-%d"), sanitize(&client_name), sanitize(user_full_name));
-    let filename = format!("{base_name}.xlsx");
+    let filename = unique_filename(&base_name, used_names);
+    let contract_name = if groups.len() == 1 { groups[0].0.clone() } else { "All Contracts".to_string() };
 
     let (path, entry_count) = write_timesheet_workbook(output_folder, &filename, include_rate_amount, groups)?;
 
     Ok(vec![TimesheetFile {
         path: path.to_string_lossy().to_string(),
         client_name,
-        contract_name: "All Contracts".to_string(),
+        contract_name,
         entry_count,
     }])
 }
@@ -555,6 +604,44 @@ mod tests {
         let range = workbook.worksheet_range(&sheet_name).expect("read sheet");
         let header: Vec<String> = range.rows().next().expect("header row").iter().map(cell_str).collect();
         assert!(!header.contains(&"Contract".to_string()), "single-contract sheet should not have a Contract column");
+
+        let _ = fs::remove_file(&db_path);
+        let _ = fs::remove_dir_all(&out_dir);
+    }
+
+    #[test]
+    fn unscoped_timesheet_still_combines_a_clients_contracts_into_one_file() {
+        // Regression test for a reported bug: generating timesheets from the
+        // top-level Reports view (no client_id/contract_id at all — "every client")
+        // was still producing one file per CONTRACT, so a client with two contracts
+        // ended up with two separate files instead of one combined one.
+        use crate::domain::contracts::{create_client, create_contract};
+        use crate::domain::time_entries::create_manual_entry;
+        use std::fs;
+
+        let pid = std::process::id();
+        let db_path = std::env::temp_dir().join(format!("timetracker_test_timesheets_{pid}_unscoped.sqlite"));
+        let _ = fs::remove_file(&db_path);
+        let conn = crate::db::open(&db_path).expect("open db");
+        let out_dir = std::env::temp_dir().join(format!("timetracker_test_timesheets_{pid}_unscoped_out"));
+        let _ = fs::remove_dir_all(&out_dir);
+        fs::create_dir_all(&out_dir).expect("create output dir");
+
+        let client_id = create_client(&conn, "Shipping Fast", None).expect("create client");
+        let contract_a = create_contract(&conn, client_id, "Contract A", "USD", 50.0).expect("create contract a");
+        let contract_b = create_contract(&conn, client_id, "Contract B", "USD", 75.0).expect("create contract b");
+        create_manual_entry(&conn, contract_a, "2026-08-24T09:00:00Z", "2026-08-24T10:00:00Z", None, None)
+            .expect("create entry a");
+        create_manual_entry(&conn, contract_b, "2026-08-25T13:00:00Z", "2026-08-25T14:00:00Z", None, None)
+            .expect("create entry b");
+
+        let files =
+            generate_timesheets(&conn, "week", "2026-08-24", out_dir.to_str().unwrap(), "Jane Consultant", false, None, None)
+                .expect("generate timesheets");
+
+        assert_eq!(files.len(), 1, "one combined file for the client, not one per contract: {files:?}");
+        assert_eq!(files[0].entry_count, 2);
+        assert_eq!(files[0].contract_name, "All Contracts");
 
         let _ = fs::remove_file(&db_path);
         let _ = fs::remove_dir_all(&out_dir);

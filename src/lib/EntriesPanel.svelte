@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { confirm } from '@tauri-apps/plugin-dialog'
   import { api, type TimeEntry } from './api'
   import {
     store,
@@ -175,7 +176,7 @@
 
   async function remove(event: MouseEvent, entryId: number) {
     event.stopPropagation()
-    if (!confirm('Delete this time entry? You can restore it later from Trash.')) return
+    if (!(await confirm('Delete this time entry? You can restore it later from Trash.'))) return
     busy = true
     try {
       await api.deleteEntry(entryId)
@@ -188,7 +189,7 @@
   async function bulkDelete() {
     const count = selectedEntries.length
     if (count === 0) return
-    if (!confirm(`Delete ${count} selected entr${count === 1 ? 'y' : 'ies'}? You can restore them later from Trash.`))
+    if (!(await confirm(`Delete ${count} selected entr${count === 1 ? 'y' : 'ies'}? You can restore them later from Trash.`)))
       return
     bulkBusy = true
     bulkMessage = ''

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { confirm } from '@tauri-apps/plugin-dialog'
   import { api, WEEKDAYS, type Weekday } from './api'
   import { store, navGuard, refreshClients, loadTrackingCodesForClient } from './store.svelte'
   import { isDirty, capitalize } from './dateUtils'
@@ -121,7 +122,7 @@
 
   async function archiveClient() {
     if (!client) return
-    if (!confirm('Archive this client? It will be hidden from the Clients list but can be restored from Trash.'))
+    if (!(await confirm('Archive this client? It will be hidden from the Clients list but can be restored from Trash.')))
       return
     busy = true
     try {

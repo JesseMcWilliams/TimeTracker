@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import { confirm } from '@tauri-apps/plugin-dialog'
   import { store, navGuard, refreshAll } from './lib/store.svelte'
   import { applyTheme } from './lib/theme'
   import ClientsPanel from './lib/ClientsPanel.svelte'
@@ -31,8 +32,8 @@
 
   let view = $state<View>({ name: 'timer' })
 
-  function navigate(next: View) {
-    if (navGuard.isDirty && !confirm('You have unsaved changes. Leave without saving?')) return
+  async function navigate(next: View) {
+    if (navGuard.isDirty && !(await confirm('You have unsaved changes. Leave without saving?'))) return
     navGuard.isDirty = false
     view = next
   }

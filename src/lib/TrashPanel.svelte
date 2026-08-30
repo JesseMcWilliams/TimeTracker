@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import { confirm } from '@tauri-apps/plugin-dialog'
   import { api } from './api'
   import {
     store,
@@ -105,9 +106,9 @@
   ) {
     if (count === 0) return
     if (
-      !confirm(
+      !(await confirm(
         `Permanently delete ${count} ${label}? A CSV backup will be written to your output folder first. This cannot be undone.`,
-      )
+      ))
     )
       return
     busy = true

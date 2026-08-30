@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { confirm } from '@tauri-apps/plugin-dialog'
   import { api, type FilenameDate } from './api'
   import { store, navGuard, refreshContracts } from './store.svelte'
   import { isDirty } from './dateUtils'
@@ -85,7 +86,7 @@
 
   async function archive() {
     if (!contract) return
-    if (!confirm('Archive this contract?')) return
+    if (!(await confirm('Archive this contract?'))) return
     busy = true
     try {
       await api.archiveContract(contract.id)

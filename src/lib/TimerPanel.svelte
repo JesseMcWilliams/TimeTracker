@@ -57,7 +57,7 @@
       )
       notes = ''
       trackingCodeId = ''
-      await refreshActiveTimers()
+      await Promise.all([refreshActiveTimers(), refreshEntries()])
     } finally {
       busy = false
     }

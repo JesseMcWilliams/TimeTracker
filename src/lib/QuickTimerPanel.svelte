@@ -27,7 +27,7 @@
     delete errorsByClient[clientId]
     try {
       await api.startTimer(contractId, undefined, defaultTrackingCodeId ?? undefined)
-      await refreshActiveTimers()
+      await Promise.all([refreshActiveTimers(), refreshEntries()])
     } catch (e) {
       errorsByClient[clientId] = String(e)
     } finally {

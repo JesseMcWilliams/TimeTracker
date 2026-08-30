@@ -72,20 +72,22 @@ mobile clients, remote import sources (e.g. OneNote/Graph).
   Week or Month, broken down by client then contract, with click-to-drill-down from
   "all clients" → one client → one contract → that contract's raw entries for the
   period.
-- FR-21: "Create Timesheet" writes one .xlsx file per contract with entries in the
-  selected period, named `{date}_{client}_{contract}_{yourFullName}.xlsx`, to the
-  user's configured output folder. Columns: Date, Start Time (24h), End Time (24h),
-  HH:MM, Category, Notes, with Rate/Amount as an opt-in extra pair of columns,
+- FR-21: "Create Timesheet" writes one .xlsx per **client** (covering every one of
+  that client's contracts in a single sheet) with entries in the selected period, to
+  the user's configured output folder. Columns: Date, Start Time (24h), End Time
+  (24h), HH:MM, Category, Notes, with Rate/Amount as an opt-in extra pair of columns,
   formatted as currency. Column widths are pre-sized so no manual resizing is needed.
-- FR-22: When "Create Timesheet" is used while drilled into a specific client or
-  contract on the Reports page, it is scoped to just that client/contract instead of
-  every contract with activity in the period. Scoped to a **client**, this produces a
-  single combined workbook covering every one of that client's contracts in one
-  sheet, with a Contract column identifying each row and rows interleaved
-  chronologically across contracts, named `{date}_{client}_{yourFullName}.xlsx`.
-  Scoped to a **contract**, this produces a single workbook for just that contract,
-  with the contract's name included in the output filename (no Contract column, since
-  there's only one).
+- FR-22: Scoping behavior on the Reports page: with no drill-down at all ("all
+  clients"), one combined workbook is produced per client that has any activity in
+  the period — never one file per contract. Drilled into a specific **client**,
+  output is scoped to just that client's combined workbook. Drilled into a specific
+  **contract**, output is a single workbook for just that contract (named
+  `{date}_{client}_{contract}_{yourFullName}.xlsx`, contract name included, no
+  Contract column). A client-combined workbook (whether reached via "all clients" or
+  by drilling into that one client) is named `{date}_{client}_{yourFullName}.xlsx`
+  and gets a Contract column (rows interleaved chronologically across contracts) only
+  when more than one of its contracts actually has entries in the period; with just
+  one, it looks the same as a directly contract-scoped file.
 - FR-23: Each contract's timesheet period is computed from its own client's
   week-start/week-end (a report's aggregate week view always uses Mon–Sun regardless
   of any one client's setting, since that view mixes multiple clients at once).

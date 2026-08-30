@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { confirm } from '@tauri-apps/plugin-dialog'
   import { api } from './api'
   import {
     store,
@@ -134,7 +135,7 @@
 
   async function remove() {
     if (!entry) return
-    if (!confirm('Delete this time entry? You can restore it later from Trash.')) return
+    if (!(await confirm('Delete this time entry? You can restore it later from Trash.'))) return
     busy = true
     try {
       await api.deleteEntry(entry.id)
