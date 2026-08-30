@@ -51,6 +51,8 @@ export type StartPage =
   | 'reports'
   | 'import'
   | 'user'
+  | 'admin'
+  | 'appearance'
 
 export const START_PAGES: StartPage[] = [
   'timer',
@@ -62,6 +64,8 @@ export const START_PAGES: StartPage[] = [
   'reports',
   'import',
   'user',
+  'admin',
+  'appearance',
 ]
 
 export type LaunchPosition =

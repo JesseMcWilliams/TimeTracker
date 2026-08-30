@@ -12,6 +12,8 @@
   import EntryDetail from './lib/EntryDetail.svelte'
   import TrashPanel from './lib/TrashPanel.svelte'
   import UserPanel from './lib/UserPanel.svelte'
+  import AdminPanel from './lib/AdminPanel.svelte'
+  import AppearancePanel from './lib/AppearancePanel.svelte'
   import ReportsPanel from './lib/ReportsPanel.svelte'
   import QuickTimerPanel from './lib/QuickTimerPanel.svelte'
   import ImportPanel from './lib/ImportPanel.svelte'
@@ -25,10 +27,12 @@
     | { name: 'contract-detail'; contractId: number }
     | { name: 'entries' }
     | { name: 'entry-detail'; entryId: number; returnTo?: 'entries' | 'timer' }
+    | { name: 'admin' }
     | { name: 'trash' }
+    | { name: 'user' }
+    | { name: 'appearance' }
     | { name: 'reports' }
     | { name: 'import' }
-    | { name: 'user' }
 
   let view = $state<View>({ name: 'timer' })
 
@@ -52,10 +56,10 @@
   <header>
     <h1>TimeTracker</h1>
     <nav>
-      <button class:active={view.name === 'timer'} onclick={() => navigate({ name: 'timer' })}>Timer</button>
       <button class:active={view.name === 'quick-timer'} onclick={() => navigate({ name: 'quick-timer' })}
         >Quick Timer</button
       >
+      <button class:active={view.name === 'timer'} onclick={() => navigate({ name: 'timer' })}>Timer</button>
       <button
         class:active={view.name === 'clients' || view.name === 'client-detail'}
         onclick={() => navigate({ name: 'clients' })}>Clients</button
@@ -68,9 +72,11 @@
         class:active={view.name === 'entries' || view.name === 'entry-detail'}
         onclick={() => navigate({ name: 'entries' })}>Entries</button
       >
-      <button class:active={view.name === 'trash'} onclick={() => navigate({ name: 'trash' })}>Trash</button>
       <button class:active={view.name === 'reports'} onclick={() => navigate({ name: 'reports' })}>Reports</button>
-      <button class:active={view.name === 'user'} onclick={() => navigate({ name: 'user' })}>User</button>
+      <button
+        class:active={view.name === 'admin' || view.name === 'user' || view.name === 'trash' || view.name === 'appearance'}
+        onclick={() => navigate({ name: 'admin' })}>Admin</button
+      >
     </nav>
   </header>
 
@@ -102,14 +108,22 @@
       backLabel={returnTo === 'timer' ? 'Back to timer' : 'Back to entries'}
       onBack={() => navigate({ name: returnTo ?? 'entries' })}
     />
+  {:else if view.name === 'admin'}
+    <AdminPanel
+      onGoToUser={() => navigate({ name: 'user' })}
+      onGoToTrash={() => navigate({ name: 'trash' })}
+      onGoToAppearance={() => navigate({ name: 'appearance' })}
+    />
   {:else if view.name === 'trash'}
-    <TrashPanel />
+    <TrashPanel onBack={() => navigate({ name: 'admin' })} />
+  {:else if view.name === 'user'}
+    <UserPanel onBack={() => navigate({ name: 'admin' })} />
+  {:else if view.name === 'appearance'}
+    <AppearancePanel onBack={() => navigate({ name: 'admin' })} />
   {:else if view.name === 'reports'}
     <ReportsPanel />
   {:else if view.name === 'import'}
     <ImportPanel />
-  {:else if view.name === 'user'}
-    <UserPanel />
   {/if}
 </main>
 

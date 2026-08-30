@@ -120,18 +120,25 @@ mobile clients, remote import sources (e.g. OneNote/Graph).
   Archived Clients, Archived Categories) as a count behind a clickable name; opening a
   type shows its list and is where that type's Purge action lives.
 
-### 3.7 User profile & app behavior
-- FR-31: A User profile holds first/last/full name (full name defaults to
-  "Last, First"), email, output folder (defaulting to the OS Documents folder, with a
-  native folder picker), output format preference, default start page, and window
-  size/position preferences.
+### 3.7 Admin, user profile & app behavior
+- FR-31: The top nav has a single "Admin" entry (not "User") leading to a menu of
+  three sub-pages: **User**, **Trash**, and **Appearance**.
+  - **User**: first/last/full name (full name defaults to "Last, First"), email,
+    output folder (defaulting to the OS Documents folder, with a native folder
+    picker), output format preference, database file size, and Backup/Restore/Purge
+    All.
+  - **Trash**: unchanged from FR-28/FR-30 — reached via Admin instead of its own
+    top-nav entry.
+  - **Appearance**: window size/position, default start page, and Colors (see
+    FR-32/FR-33), grouped together since they're all "how the app looks/opens," not
+    "who you are."
 - FR-32: Launch position supports 9 named screen positions plus a "Custom" position
   that remembers an exact remembered (x, y), settable via "use current position & size
   as default".
 - FR-33: A Colors section offers System/Light/Dark/Custom themes; Custom lets the user
   pick background, text, button-background, and button-text colors independently, live
   previewed as they're changed.
-- FR-34: The User page shows the current on-disk database file size.
+- FR-34: The Admin → User page shows the current on-disk database file size.
 - FR-35: A dirty-state Save button is visually distinct (greyed out) whenever nothing
   has changed since it was loaded, on every editable form in the app.
 - FR-36: Navigating away from a page with unsaved changes (including via the app's own
