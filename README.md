@@ -171,6 +171,4 @@ recent vulnerability review.
 
 ## License
 
-No license has been chosen for this repository yet — until one is added, all rights
-are reserved by default. See [choosealicense.com](https://choosealicense.com/) if
-you're deciding what to add.
+MIT — see [`LICENSE`](./LICENSE).
