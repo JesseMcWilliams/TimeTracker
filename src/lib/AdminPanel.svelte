@@ -1,9 +1,15 @@
 <script lang="ts">
   let {
     onGoToUser,
+    onGoToBackup,
     onGoToTrash,
     onGoToAppearance,
-  }: { onGoToUser: () => void; onGoToTrash: () => void; onGoToAppearance: () => void } = $props()
+  }: {
+    onGoToUser: () => void
+    onGoToBackup: () => void
+    onGoToTrash: () => void
+    onGoToAppearance: () => void
+  } = $props()
 </script>
 
 <section class="panel">
@@ -13,7 +19,13 @@
     <li>
       <button class="menu-row" onclick={onGoToUser}>
         <span class="title">User</span>
-        <span class="desc">Profile, output folder/format, database size, backup/restore, purge all</span>
+        <span class="desc">Profile, output folder/format, database size</span>
+      </button>
+    </li>
+    <li>
+      <button class="menu-row" onclick={onGoToBackup}>
+        <span class="title">Backup &amp; Restore</span>
+        <span class="desc">Backup Data, Restore Data, Purge All</span>
       </button>
     </li>
     <li>

@@ -34,6 +34,7 @@
     import: 'Import',
     user: 'User',
     admin: 'Admin',
+    backup: 'Backup & Restore',
     appearance: 'Appearance',
   }
 

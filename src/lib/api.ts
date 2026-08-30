@@ -52,6 +52,7 @@ export type StartPage =
   | 'import'
   | 'user'
   | 'admin'
+  | 'backup'
   | 'appearance'
 
 export const START_PAGES: StartPage[] = [
@@ -65,6 +66,7 @@ export const START_PAGES: StartPage[] = [
   'import',
   'user',
   'admin',
+  'backup',
   'appearance',
 ]
 

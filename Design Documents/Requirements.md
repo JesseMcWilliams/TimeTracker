@@ -122,11 +122,13 @@ mobile clients, remote import sources (e.g. OneNote/Graph).
 
 ### 3.7 Admin, user profile & app behavior
 - FR-31: The top nav has a single "Admin" entry (not "User") leading to a menu of
-  three sub-pages: **User**, **Trash**, and **Appearance**.
+  four sub-pages: **User**, **Backup & Restore**, **Trash**, and **Appearance**.
   - **User**: first/last/full name (full name defaults to "Last, First"), email,
     output folder (defaulting to the OS Documents folder, with a native folder
-    picker), output format preference, database file size, and Backup/Restore/Purge
-    All.
+    picker), output format preference, and database file size.
+  - **Backup & Restore**: Backup Data, Restore Data, and Purge All — split out of
+    User onto its own page, since it's a "your data" concern rather than a "who you
+    are" one.
   - **Trash**: unchanged from FR-28/FR-30 — reached via Admin instead of its own
     top-nav entry.
   - **Appearance**: window size/position, default start page, and Colors (see

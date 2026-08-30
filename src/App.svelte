@@ -12,6 +12,7 @@
   import EntryDetail from './lib/EntryDetail.svelte'
   import TrashPanel from './lib/TrashPanel.svelte'
   import UserPanel from './lib/UserPanel.svelte'
+  import BackupPanel from './lib/BackupPanel.svelte'
   import AdminPanel from './lib/AdminPanel.svelte'
   import AppearancePanel from './lib/AppearancePanel.svelte'
   import ReportsPanel from './lib/ReportsPanel.svelte'
@@ -30,6 +31,7 @@
     | { name: 'admin' }
     | { name: 'trash' }
     | { name: 'user' }
+    | { name: 'backup' }
     | { name: 'appearance' }
     | { name: 'reports' }
     | { name: 'import' }
@@ -74,7 +76,11 @@
       >
       <button class:active={view.name === 'reports'} onclick={() => navigate({ name: 'reports' })}>Reports</button>
       <button
-        class:active={view.name === 'admin' || view.name === 'user' || view.name === 'trash' || view.name === 'appearance'}
+        class:active={view.name === 'admin' ||
+          view.name === 'user' ||
+          view.name === 'backup' ||
+          view.name === 'trash' ||
+          view.name === 'appearance'}
         onclick={() => navigate({ name: 'admin' })}>Admin</button
       >
     </nav>
@@ -111,6 +117,7 @@
   {:else if view.name === 'admin'}
     <AdminPanel
       onGoToUser={() => navigate({ name: 'user' })}
+      onGoToBackup={() => navigate({ name: 'backup' })}
       onGoToTrash={() => navigate({ name: 'trash' })}
       onGoToAppearance={() => navigate({ name: 'appearance' })}
     />
@@ -118,6 +125,8 @@
     <TrashPanel onBack={() => navigate({ name: 'admin' })} />
   {:else if view.name === 'user'}
     <UserPanel onBack={() => navigate({ name: 'admin' })} />
+  {:else if view.name === 'backup'}
+    <BackupPanel onBack={() => navigate({ name: 'admin' })} />
   {:else if view.name === 'appearance'}
     <AppearancePanel onBack={() => navigate({ name: 'admin' })} />
   {:else if view.name === 'reports'}
