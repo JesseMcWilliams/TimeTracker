@@ -31,6 +31,7 @@
   let editTrackingCodeId = $state<number | ''>('')
   let busy = $state(false)
   let initializedFor = $state<number | null>(null)
+  let endSyncedFor = $state<number | null>(null)
 
   $effect(() => {
     if (entry && initializedFor !== entry.id) {
@@ -39,8 +40,15 @@
       editNotes = entry.notes ?? ''
       editTrackingCodeId = entry.trackingCodeId ?? ''
       initializedFor = entry.id
+      endSyncedFor = entry.endedAt ? entry.id : null
       const clientId = clientIdForContract(entry.contractId)
       if (clientId !== undefined) loadTrackingCodesForClient(clientId)
+    } else if (entry && entry.endedAt && endSyncedFor !== entry.id) {
+      // The entry was still running when this page first loaded and has since been
+      // stopped (e.g. via the "Stop timer" button below) — pick up its real end time
+      // without touching any in-progress, unsaved notes/category edit.
+      editEnd = toDatetimeLocalValue(entry.endedAt)
+      endSyncedFor = entry.id
     }
   })
 
@@ -69,8 +77,13 @@
       : false,
   )
 
+  // A single derived (rather than branching between metadataDirty/dirty directly
+  // inside the effect) so navGuard tracks one unambiguous reactive value, the same
+  // shape every other Detail page uses for this.
+  let formDirty = $derived(running ? metadataDirty : dirty)
+
   $effect(() => {
-    navGuard.isDirty = running ? metadataDirty : dirty
+    navGuard.isDirty = formDirty
   })
 
   async function save() {
@@ -179,9 +192,9 @@
         </select>
       </div>
     {/if}
-    <div class="field">
+    <div class="field notes-row">
       <label for="edit-notes">Notes</label>
-      <input id="edit-notes" bind:value={editNotes} />
+      <textarea id="edit-notes" class="notes-input" bind:value={editNotes} rows="2"></textarea>
     </div>
 
     {#if running}
@@ -225,6 +238,26 @@
   }
   .field label {
     width: 4.5rem;
+  }
+  .field.notes-row {
+    align-items: flex-start;
+  }
+  .field.notes-row label {
+    padding-top: 0.4rem;
+  }
+  .notes-input {
+    flex: 1;
+    width: 100%;
+    box-sizing: border-box;
+    resize: vertical;
+    min-height: 2.5rem;
+    height: clamp(2.5rem, 20vh, 12rem);
+    font: inherit;
+    padding: 0.4rem 0.5rem;
+    border: 1px solid var(--border, #ccc);
+    border-radius: 4px;
+    background: var(--bg, #fff);
+    color: var(--text, inherit);
   }
   .row {
     display: flex;

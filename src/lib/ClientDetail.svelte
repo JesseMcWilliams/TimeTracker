@@ -186,9 +186,9 @@
       />
       <span class="muted">minutes — entries round up to the nearest multiple; blank means no rounding</span>
     </div>
-    <div class="field">
+    <div class="field notes-row">
       <label for="edit-notes">Notes</label>
-      <input id="edit-notes" bind:value={editNotes} />
+      <textarea id="edit-notes" class="notes-input" bind:value={editNotes} rows="2"></textarea>
     </div>
     <div class="row">
       <button class:unchanged={!dirty} onclick={save} disabled={busy || !editName.trim() || !dirty}>Save</button>
@@ -253,6 +253,26 @@
   }
   .field label {
     width: 4.5rem;
+  }
+  .field.notes-row {
+    align-items: flex-start;
+  }
+  .field.notes-row label {
+    padding-top: 0.4rem;
+  }
+  .notes-input {
+    flex: 1;
+    width: 100%;
+    box-sizing: border-box;
+    resize: vertical;
+    min-height: 2.5rem;
+    height: clamp(2.5rem, 20vh, 12rem);
+    font: inherit;
+    padding: 0.4rem 0.5rem;
+    border: 1px solid var(--border, #ccc);
+    border-radius: 4px;
+    background: var(--bg, #fff);
+    color: var(--text, inherit);
   }
   .row {
     display: flex;

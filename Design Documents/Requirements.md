@@ -79,7 +79,13 @@ mobile clients, remote import sources (e.g. OneNote/Graph).
   formatted as currency. Column widths are pre-sized so no manual resizing is needed.
 - FR-22: When "Create Timesheet" is used while drilled into a specific client or
   contract on the Reports page, it is scoped to just that client/contract instead of
-  every contract with activity in the period.
+  every contract with activity in the period. Scoped to a **client**, this produces a
+  single combined workbook covering every one of that client's contracts in one
+  sheet, with a Contract column identifying each row and rows interleaved
+  chronologically across contracts, named `{date}_{client}_{yourFullName}.xlsx`.
+  Scoped to a **contract**, this produces a single workbook for just that contract,
+  with the contract's name included in the output filename (no Contract column, since
+  there's only one).
 - FR-23: Each contract's timesheet period is computed from its own client's
   week-start/week-end (a report's aggregate week view always uses Mon–Sun regardless
   of any one client's setting, since that view mixes multiple clients at once).

@@ -1,5 +1,5 @@
 use std::collections::HashSet;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Local, NaiveDate, TimeZone, Utc};
 use rusqlite::{params, Connection};
@@ -80,33 +80,11 @@ fn duration_hm(secs: i64) -> String {
     format!("{}:{:02}", secs / 3600, (secs % 3600) / 60)
 }
 
-/// Generates one .xlsx timesheet per contract that has entries in the resolved period,
-/// named `{date}_{client}_{contract}_{yourFullName}.xlsx`, where `{date}` is either
-/// the first or last day of that contract's resolved period depending on its own
-/// `filename_date` setting ("start" or "end"; "end" — the last day — is the default).
-/// For "week" periods, each contract's range is computed from its own client's
-/// `week_start`/`week_end` (so a client billed Sun-Sat gets a Sun-Sat sheet even if
-/// another client uses Mon-Sun); "month" periods use the same calendar month for
-/// everyone. Contracts with no entries in their resolved period are skipped rather
-/// than producing an empty file. Rate and Amount columns are only included when
-/// `include_rate_amount` is set — by default the sheet is just
-/// Date/Start/End/Hours/Category/Notes, with Start/End times rounded to the nearest 5
-/// minutes (down for start, up for end) for readability. `contract_id` restricts
-/// output to a single contract; otherwise `client_id` restricts to that client's
-/// contracts; if neither is set, every active contract is considered (contract_id
-/// wins if both are set).
-pub fn generate_timesheets(
+fn fetch_active_contracts(
     conn: &Connection,
-    period: &str,
-    reference_date: &str,
-    output_folder: &str,
-    user_full_name: &str,
-    include_rate_amount: bool,
-    client_id: Option<i64>,
     contract_id: Option<i64>,
-) -> DomainResult<Vec<TimesheetFile>> {
-    let reference: NaiveDate = reference_date.parse().map_err(|e| format!("invalid date: {e}"))?;
-
+    client_id: Option<i64>,
+) -> DomainResult<Vec<ContractInfo>> {
     let mut sql = "SELECT c.id, c.name, cl.name, cl.week_start, cl.week_end, c.filename_date
          FROM contracts c JOIN clients cl ON cl.id = c.client_id
          WHERE c.archived_at IS NULL"
@@ -122,7 +100,7 @@ pub fn generate_timesheets(
 
     let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
     let param_refs: Vec<&dyn rusqlite::ToSql> = sql_params.iter().map(|p| p.as_ref()).collect();
-    let contracts: Vec<ContractInfo> = stmt
+    let rows = stmt
         .query_map(param_refs.as_slice(), |row| {
             Ok(ContractInfo {
                 id: row.get(0)?,
@@ -133,10 +111,212 @@ pub fn generate_timesheets(
                 filename_date: row.get(5)?,
             })
         })
-        .map_err(|e| e.to_string())?
-        .collect::<Result<Vec<_>, _>>()
         .map_err(|e| e.to_string())?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+}
 
+fn fetch_contract_entries(conn: &Connection, contract_id: i64, from: &str, to: &str) -> DomainResult<Vec<EntryRow>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT te.started_at, te.ended_at, te.duration_secs, te.rate_snapshot, te.notes, tc.code
+             FROM time_entries te LEFT JOIN tracking_codes tc ON tc.id = te.tracking_code_id
+             WHERE te.contract_id = ?1 AND te.deleted_at IS NULL
+               AND te.started_at >= ?2 AND te.started_at <= ?3
+             ORDER BY te.started_at",
+        )
+        .map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map(params![contract_id, from, to], |row| {
+            Ok(EntryRow {
+                started_at: row.get(0)?,
+                ended_at: row.get(1)?,
+                duration_secs: row.get(2)?,
+                rate_snapshot: row.get(3)?,
+                notes: row.get(4)?,
+                category: row.get(5)?,
+            })
+        })
+        .map_err(|e| e.to_string())?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+}
+
+fn unique_filename(base_name: &str, used_names: &mut HashSet<String>) -> String {
+    let mut filename = format!("{base_name}.xlsx");
+    let mut suffix = 2;
+    while used_names.contains(&filename) {
+        filename = format!("{base_name}_{suffix}.xlsx");
+        suffix += 1;
+    }
+    used_names.insert(filename.clone());
+    filename
+}
+
+/// Writes one or more contracts' entries into a single workbook and saves it under
+/// `output_folder/filename`. When `groups` has more than one entry (a client-scoped
+/// timesheet spanning several contracts), a "Contract" column is added and rows from
+/// every contract are interleaved chronologically by start time — rather than
+/// grouped contract-by-contract — so the sheet reads as one continuous day-by-day
+/// log. Returns the saved path and the total entry count written.
+fn write_timesheet_workbook(
+    output_folder: &str,
+    filename: &str,
+    include_rate_amount: bool,
+    groups: Vec<(String, Vec<EntryRow>)>,
+) -> DomainResult<(PathBuf, i64)> {
+    let include_contract_column = groups.len() > 1;
+
+    let mut all: Vec<(String, EntryRow)> = groups
+        .into_iter()
+        .flat_map(|(name, entries)| entries.into_iter().map(move |e| (name.clone(), e)))
+        .collect();
+    all.sort_by(|a, b| a.1.started_at.cmp(&b.1.started_at));
+
+    let mut workbook = Workbook::new();
+    let worksheet = workbook.add_worksheet();
+    let header_format = Format::new().set_bold();
+    let money_format = Format::new().set_num_format("#,##0.00");
+    let money_bold_format = Format::new().set_num_format("#,##0.00").set_bold();
+
+    let mut headers: Vec<&str> = vec!["Date"];
+    if include_contract_column {
+        headers.push("Contract");
+    }
+    headers.extend_from_slice(&["Start Time", "End Time", "HH:MM", "Category", "Notes"]);
+    if include_rate_amount {
+        headers.push("Rate");
+        headers.push("Amount");
+    }
+    for (col, header) in headers.iter().enumerate() {
+        worksheet
+            .write_with_format(0, col as u16, *header, &header_format)
+            .map_err(|e| e.to_string())?;
+    }
+
+    let mut widths: Vec<f64> = vec![12.0];
+    if include_contract_column {
+        widths.push(18.0);
+    }
+    widths.extend_from_slice(&[11.0, 11.0, 8.0, 18.0, 40.0]);
+    if include_rate_amount {
+        widths.extend_from_slice(&[10.0, 12.0]);
+    }
+    for (col, width) in widths.iter().enumerate() {
+        worksheet.set_column_width(col as u16, *width).map_err(|e| e.to_string())?;
+    }
+
+    // Column layout shifts right by one when a Contract column is present; computing
+    // these once keeps every write/total-row reference correct without duplicating
+    // the branch everywhere.
+    let base: u16 = if include_contract_column { 2 } else { 1 };
+    let col_start = base;
+    let col_end = base + 1;
+    let col_hhmm = base + 2;
+    let col_category = base + 3;
+    let col_notes = base + 4;
+    let col_rate = base + 5;
+    let col_amount = base + 6;
+
+    let mut total_secs = 0i64;
+    let mut total_amount = 0f64;
+
+    for (i, (contract_name, entry)) in all.iter().enumerate() {
+        let row = (i + 1) as u32;
+        let secs = entry.duration_secs.unwrap_or(0);
+        let amount = (secs as f64 / 3600.0) * entry.rate_snapshot;
+        total_secs += secs;
+        total_amount += amount;
+
+        worksheet.write(row, 0, local_date(&entry.started_at)).map_err(|e| e.to_string())?;
+        if include_contract_column {
+            worksheet.write(row, 1, contract_name.as_str()).map_err(|e| e.to_string())?;
+        }
+        worksheet
+            .write(row, col_start, local_time_hm_rounded(&entry.started_at, false))
+            .map_err(|e| e.to_string())?;
+        worksheet
+            .write(
+                row,
+                col_end,
+                entry.ended_at.as_deref().map(|e| local_time_hm_rounded(e, true)).unwrap_or_default(),
+            )
+            .map_err(|e| e.to_string())?;
+        worksheet.write(row, col_hhmm, duration_hm(secs)).map_err(|e| e.to_string())?;
+        worksheet
+            .write(row, col_category, entry.category.as_deref().unwrap_or(""))
+            .map_err(|e| e.to_string())?;
+        worksheet
+            .write(row, col_notes, entry.notes.as_deref().unwrap_or(""))
+            .map_err(|e| e.to_string())?;
+        if include_rate_amount {
+            worksheet
+                .write_with_format(row, col_rate, entry.rate_snapshot, &money_format)
+                .map_err(|e| e.to_string())?;
+            worksheet.write_with_format(row, col_amount, amount, &money_format).map_err(|e| e.to_string())?;
+        }
+    }
+
+    let total_row = (all.len() + 1) as u32;
+    worksheet
+        .write_with_format(total_row, col_end, "Total", &header_format)
+        .map_err(|e| e.to_string())?;
+    worksheet
+        .write_with_format(total_row, col_hhmm, duration_hm(total_secs), &header_format)
+        .map_err(|e| e.to_string())?;
+    if include_rate_amount {
+        // Summed across every entry regardless of contract — correct as long as a
+        // client's contracts share one currency (the common case); mixed-currency
+        // clients would see a numerically meaningless combined total here.
+        worksheet
+            .write_with_format(total_row, col_amount, total_amount, &money_bold_format)
+            .map_err(|e| e.to_string())?;
+    }
+
+    let path = Path::new(output_folder).join(filename);
+    workbook.save(&path).map_err(|e| e.to_string())?;
+
+    Ok((path, all.len() as i64))
+}
+
+/// Generates a timesheet. When scoped to a single `contract_id`, writes one .xlsx
+/// file for just that contract, named `{date}_{client}_{contract}_{yourFullName}.xlsx`.
+/// When scoped to a `client_id` only (no `contract_id`), writes a SINGLE combined
+/// .xlsx covering every one of that client's contracts in one sheet (with a Contract
+/// column identifying each row's contract), named `{date}_{client}_{yourFullName}.xlsx`
+/// — see `generate_combined_client_timesheet`. With neither set, every active
+/// contract gets its own file (contract_id wins if both are set). `{date}` is either
+/// the first or last day of the resolved period, per each contract's own
+/// `filename_date` setting ("start"/"end"; "end" — the last day — is the default).
+/// For "week" periods, the range is computed from the relevant client's own
+/// `week_start`/`week_end`; "month" periods use the same calendar month for everyone.
+/// Contracts with no entries in their resolved period are skipped rather than
+/// producing an empty file. Rate and Amount columns are only included when
+/// `include_rate_amount` is set, with Start/End times rounded to the nearest 5
+/// minutes (down for start, up for end) for readability.
+pub fn generate_timesheets(
+    conn: &Connection,
+    period: &str,
+    reference_date: &str,
+    output_folder: &str,
+    user_full_name: &str,
+    include_rate_amount: bool,
+    client_id: Option<i64>,
+    contract_id: Option<i64>,
+) -> DomainResult<Vec<TimesheetFile>> {
+    let reference: NaiveDate = reference_date.parse().map_err(|e| format!("invalid date: {e}"))?;
+
+    if let (Some(client_id), None) = (client_id, contract_id) {
+        return generate_combined_client_timesheet(
+            conn,
+            period,
+            reference,
+            output_folder,
+            user_full_name,
+            include_rate_amount,
+            client_id,
+        );
+    }
+
+    let contracts = fetch_active_contracts(conn, contract_id, client_id)?;
     let mut used_names: HashSet<String> = HashSet::new();
     let mut results = Vec::new();
 
@@ -147,105 +327,9 @@ pub fn generate_timesheets(
             month_range(reference)
         };
         let (from, to) = to_rfc3339_bounds(start, end);
-
-        let mut entry_stmt = conn
-            .prepare(
-                "SELECT te.started_at, te.ended_at, te.duration_secs, te.rate_snapshot, te.notes, tc.code
-                 FROM time_entries te LEFT JOIN tracking_codes tc ON tc.id = te.tracking_code_id
-                 WHERE te.contract_id = ?1 AND te.deleted_at IS NULL
-                   AND te.started_at >= ?2 AND te.started_at <= ?3
-                 ORDER BY te.started_at",
-            )
-            .map_err(|e| e.to_string())?;
-
-        let entries: Vec<EntryRow> = entry_stmt
-            .query_map(params![contract.id, from, to], |row| {
-                Ok(EntryRow {
-                    started_at: row.get(0)?,
-                    ended_at: row.get(1)?,
-                    duration_secs: row.get(2)?,
-                    rate_snapshot: row.get(3)?,
-                    notes: row.get(4)?,
-                    category: row.get(5)?,
-                })
-            })
-            .map_err(|e| e.to_string())?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| e.to_string())?;
-
+        let entries = fetch_contract_entries(conn, contract.id, &from, &to)?;
         if entries.is_empty() {
             continue;
-        }
-
-        let mut workbook = Workbook::new();
-        let worksheet = workbook.add_worksheet();
-        let header_format = Format::new().set_bold();
-        let money_format = Format::new().set_num_format("#,##0.00");
-        let money_bold_format = Format::new().set_num_format("#,##0.00").set_bold();
-
-        let mut headers = vec!["Date", "Start Time", "End Time", "HH:MM", "Category", "Notes"];
-        if include_rate_amount {
-            headers.push("Rate");
-            headers.push("Amount");
-        }
-        for (col, header) in headers.iter().enumerate() {
-            worksheet
-                .write_with_format(0, col as u16, *header, &header_format)
-                .map_err(|e| e.to_string())?;
-        }
-
-        let column_widths: [f64; 8] = [12.0, 11.0, 11.0, 8.0, 18.0, 40.0, 10.0, 12.0];
-        for (col, width) in column_widths.iter().enumerate().take(headers.len()) {
-            worksheet.set_column_width(col as u16, *width).map_err(|e| e.to_string())?;
-        }
-
-        let mut total_secs = 0i64;
-        let mut total_amount = 0f64;
-
-        for (i, entry) in entries.iter().enumerate() {
-            let row = (i + 1) as u32;
-            let secs = entry.duration_secs.unwrap_or(0);
-            let amount = (secs as f64 / 3600.0) * entry.rate_snapshot;
-            total_secs += secs;
-            total_amount += amount;
-
-            worksheet.write(row, 0, local_date(&entry.started_at)).map_err(|e| e.to_string())?;
-            worksheet
-                .write(row, 1, local_time_hm_rounded(&entry.started_at, false))
-                .map_err(|e| e.to_string())?;
-            worksheet
-                .write(
-                    row,
-                    2,
-                    entry.ended_at.as_deref().map(|e| local_time_hm_rounded(e, true)).unwrap_or_default(),
-                )
-                .map_err(|e| e.to_string())?;
-            worksheet.write(row, 3, duration_hm(secs)).map_err(|e| e.to_string())?;
-            worksheet
-                .write(row, 4, entry.category.as_deref().unwrap_or(""))
-                .map_err(|e| e.to_string())?;
-            worksheet
-                .write(row, 5, entry.notes.as_deref().unwrap_or(""))
-                .map_err(|e| e.to_string())?;
-            if include_rate_amount {
-                worksheet
-                    .write_with_format(row, 6, entry.rate_snapshot, &money_format)
-                    .map_err(|e| e.to_string())?;
-                worksheet.write_with_format(row, 7, amount, &money_format).map_err(|e| e.to_string())?;
-            }
-        }
-
-        let total_row = (entries.len() + 1) as u32;
-        worksheet
-            .write_with_format(total_row, 2, "Total", &header_format)
-            .map_err(|e| e.to_string())?;
-        worksheet
-            .write_with_format(total_row, 3, duration_hm(total_secs), &header_format)
-            .map_err(|e| e.to_string())?;
-        if include_rate_amount {
-            worksheet
-                .write_with_format(total_row, 7, total_amount, &money_bold_format)
-                .map_err(|e| e.to_string())?;
         }
 
         let filename_date = if contract.filename_date == "start" { start } else { end };
@@ -256,26 +340,79 @@ pub fn generate_timesheets(
             sanitize(&contract.name),
             sanitize(user_full_name)
         );
-        let mut filename = format!("{base_name}.xlsx");
-        let mut suffix = 2;
-        while used_names.contains(&filename) {
-            filename = format!("{base_name}_{suffix}.xlsx");
-            suffix += 1;
-        }
-        used_names.insert(filename.clone());
+        let filename = unique_filename(&base_name, &mut used_names);
 
-        let path = Path::new(output_folder).join(&filename);
-        workbook.save(&path).map_err(|e| e.to_string())?;
+        let (path, entry_count) =
+            write_timesheet_workbook(output_folder, &filename, include_rate_amount, vec![(contract.name.clone(), entries)])?;
 
         results.push(TimesheetFile {
             path: path.to_string_lossy().to_string(),
             client_name: contract.client_name,
             contract_name: contract.name,
-            entry_count: entries.len() as i64,
+            entry_count,
         });
     }
 
     Ok(results)
+}
+
+/// Combines every one of a client's active contracts into a single timesheet, with a
+/// Contract column identifying which contract each row belongs to. Every contract
+/// under one client shares that client's `week_start`/`week_end`, so the resolved
+/// "week" period is identical for all of them — computed once, not per contract.
+/// Skips (does not write) any contract with no entries in the period; returns an
+/// empty result rather than an empty file if none of the client's contracts have any.
+fn generate_combined_client_timesheet(
+    conn: &Connection,
+    period: &str,
+    reference: NaiveDate,
+    output_folder: &str,
+    user_full_name: &str,
+    include_rate_amount: bool,
+    client_id: i64,
+) -> DomainResult<Vec<TimesheetFile>> {
+    let contracts = fetch_active_contracts(conn, None, Some(client_id))?;
+    let Some(first) = contracts.first() else {
+        return Ok(Vec::new());
+    };
+    let client_name = first.client_name.clone();
+
+    let (start, end) = if period == "week" {
+        week_range(reference, parse_weekday(&first.week_start), parse_weekday(&first.week_end))
+    } else {
+        month_range(reference)
+    };
+    let (from, to) = to_rfc3339_bounds(start, end);
+
+    let mut groups = Vec::new();
+    for contract in &contracts {
+        let entries = fetch_contract_entries(conn, contract.id, &from, &to)?;
+        if !entries.is_empty() {
+            groups.push((contract.name.clone(), entries));
+        }
+    }
+    if groups.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    // Only use the period's start date in the filename if every one of this
+    // client's contracts explicitly prefers it; otherwise (mixed settings, or all
+    // "end") default to the last day, matching the system-wide default.
+    let all_prefer_start = contracts.iter().all(|c| c.filename_date == "start");
+    let filename_date = if all_prefer_start { start } else { end };
+
+    let base_name =
+        format!("{}_{}_{}", filename_date.format("%Y-%m-%d"), sanitize(&client_name), sanitize(user_full_name));
+    let filename = format!("{base_name}.xlsx");
+
+    let (path, entry_count) = write_timesheet_workbook(output_folder, &filename, include_rate_amount, groups)?;
+
+    Ok(vec![TimesheetFile {
+        path: path.to_string_lossy().to_string(),
+        client_name,
+        contract_name: "All Contracts".to_string(),
+        entry_count,
+    }])
 }
 
 #[cfg(test)]
@@ -306,5 +443,120 @@ mod tests {
         assert_eq!(local_time_hm_rounded(&local_rfc3339(7, 5, 0), true), "07:05");
         // Rounding up correctly rolls over an hour boundary.
         assert_eq!(local_time_hm_rounded(&local_rfc3339(7, 57, 0), true), "08:00");
+    }
+
+    fn cell_str(cell: &calamine::Data) -> String {
+        match cell {
+            calamine::Data::String(s) => s.clone(),
+            other => format!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn client_scoped_timesheet_combines_every_contract_into_one_sheet() {
+        use crate::domain::contracts::{create_client, create_contract};
+        use crate::domain::time_entries::create_manual_entry;
+        use calamine::{open_workbook_auto, Reader};
+        use std::fs;
+
+        let pid = std::process::id();
+        let db_path = std::env::temp_dir().join(format!("timetracker_test_timesheets_{pid}_combined.sqlite"));
+        let _ = fs::remove_file(&db_path);
+        let conn = crate::db::open(&db_path).expect("open db");
+        let out_dir = std::env::temp_dir().join(format!("timetracker_test_timesheets_{pid}_out"));
+        let _ = fs::remove_dir_all(&out_dir);
+        fs::create_dir_all(&out_dir).expect("create output dir");
+
+        let client_id = create_client(&conn, "Combined Client", None).expect("create client");
+        let contract_a = create_contract(&conn, client_id, "Contract A", "USD", 50.0).expect("create contract a");
+        let contract_b = create_contract(&conn, client_id, "Contract B", "USD", 75.0).expect("create contract b");
+
+        create_manual_entry(&conn, contract_a, "2026-08-24T09:00:00Z", "2026-08-24T10:00:00Z", None, None)
+            .expect("create entry a");
+        create_manual_entry(&conn, contract_b, "2026-08-25T13:00:00Z", "2026-08-25T14:00:00Z", None, None)
+            .expect("create entry b");
+
+        let files = generate_timesheets(
+            &conn,
+            "week",
+            "2026-08-24",
+            out_dir.to_str().unwrap(),
+            "Jane Consultant",
+            false,
+            Some(client_id),
+            None,
+        )
+        .expect("generate timesheets");
+
+        assert_eq!(files.len(), 1, "one combined file for the whole client, not one per contract");
+        assert_eq!(files[0].contract_name, "All Contracts");
+        assert_eq!(files[0].entry_count, 2);
+        assert!(!Path::new(&files[0].path).file_name().unwrap().to_string_lossy().contains("Contract"));
+
+        let mut workbook = open_workbook_auto(&files[0].path).expect("open generated workbook");
+        let sheet_name = workbook.sheet_names()[0].clone();
+        let range = workbook.worksheet_range(&sheet_name).expect("read sheet");
+        let mut rows = range.rows();
+
+        let header: Vec<String> = rows.next().expect("header row").iter().map(cell_str).collect();
+        assert!(header.contains(&"Contract".to_string()), "combined sheet must have a Contract column: {header:?}");
+        let contract_col = header.iter().position(|h| h == "Contract").unwrap();
+
+        let contract_names: Vec<String> = rows.take(2).map(|row| cell_str(&row[contract_col])).collect();
+        assert!(contract_names.contains(&"Contract A".to_string()), "{contract_names:?}");
+        assert!(contract_names.contains(&"Contract B".to_string()), "{contract_names:?}");
+
+        let _ = fs::remove_file(&db_path);
+        let _ = fs::remove_dir_all(&out_dir);
+    }
+
+    #[test]
+    fn contract_scoped_timesheet_has_no_contract_column() {
+        use crate::domain::contracts::{create_client, create_contract};
+        use crate::domain::time_entries::create_manual_entry;
+        use calamine::{open_workbook_auto, Reader};
+        use std::fs;
+
+        let pid = std::process::id();
+        let db_path = std::env::temp_dir().join(format!("timetracker_test_timesheets_{pid}_single.sqlite"));
+        let _ = fs::remove_file(&db_path);
+        let conn = crate::db::open(&db_path).expect("open db");
+        let out_dir = std::env::temp_dir().join(format!("timetracker_test_timesheets_{pid}_single_out"));
+        let _ = fs::remove_dir_all(&out_dir);
+        fs::create_dir_all(&out_dir).expect("create output dir");
+
+        let client_id = create_client(&conn, "Solo Client", None).expect("create client");
+        let contract_id = create_contract(&conn, client_id, "Only Contract", "USD", 50.0).expect("create contract");
+        create_manual_entry(&conn, contract_id, "2026-08-24T09:00:00Z", "2026-08-24T10:00:00Z", None, None)
+            .expect("create entry");
+
+        let files = generate_timesheets(
+            &conn,
+            "week",
+            "2026-08-24",
+            out_dir.to_str().unwrap(),
+            "Jane Consultant",
+            false,
+            None,
+            Some(contract_id),
+        )
+        .expect("generate timesheets");
+
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].contract_name, "Only Contract");
+        assert!(
+            Path::new(&files[0].path).file_name().unwrap().to_string_lossy().contains("Only_Contract"),
+            "single-contract filename should include the contract name: {}",
+            files[0].path
+        );
+
+        let mut workbook = open_workbook_auto(&files[0].path).expect("open generated workbook");
+        let sheet_name = workbook.sheet_names()[0].clone();
+        let range = workbook.worksheet_range(&sheet_name).expect("read sheet");
+        let header: Vec<String> = range.rows().next().expect("header row").iter().map(cell_str).collect();
+        assert!(!header.contains(&"Contract".to_string()), "single-contract sheet should not have a Contract column");
+
+        let _ = fs::remove_file(&db_path);
+        let _ = fs::remove_dir_all(&out_dir);
     }
 }

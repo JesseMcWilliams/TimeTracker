@@ -127,9 +127,9 @@
       <label for="edit-start-date">Start date</label>
       <input id="edit-start-date" type="date" bind:value={editStartDate} />
     </div>
-    <div class="field">
+    <div class="field notes-row">
       <label for="edit-notes">Notes</label>
-      <input id="edit-notes" bind:value={editNotes} style="flex: 1" />
+      <textarea id="edit-notes" class="notes-input" bind:value={editNotes} rows="2"></textarea>
     </div>
     <div class="field">
       <label for="edit-filename-date">Timesheet filename date</label>
@@ -186,6 +186,26 @@
   }
   .field label {
     width: 5.5rem;
+  }
+  .field.notes-row {
+    align-items: flex-start;
+  }
+  .field.notes-row label {
+    padding-top: 0.4rem;
+  }
+  .notes-input {
+    flex: 1;
+    width: 100%;
+    box-sizing: border-box;
+    resize: vertical;
+    min-height: 2.5rem;
+    height: clamp(2.5rem, 20vh, 12rem);
+    font: inherit;
+    padding: 0.4rem 0.5rem;
+    border: 1px solid var(--border, #ccc);
+    border-radius: 4px;
+    background: var(--bg, #fff);
+    color: var(--text, inherit);
   }
   .row {
     display: flex;
