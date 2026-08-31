@@ -59,9 +59,12 @@ mobile clients, remote import sources (e.g. OneNote/Graph).
 - FR-16: An entry's billable duration rounds UP to the client's minimum increment
   (e.g. a 22-minute entry bills as 30 minutes for a 15-minute-increment client). A
   client with no minimum set bills the exact elapsed time.
-- FR-17: The Entries list defaults to the last 2 weeks, with Month/3-months/All filters,
-  plus Contract and Category filters that narrow the same list, and a totals row
-  (duration, and per-currency amount when amounts are shown).
+- FR-17: The Entries list defaults to the last week, with Last 2 weeks/Month/3-months/
+  All period filters, plus Contract and Category filters that narrow the same list, and
+  a totals row (duration, and per-currency amount when amounts are shown). All three
+  filters persist across navigation (e.g. into an entry's detail page and back, or to
+  any other page and back) rather than resetting, since they're held in shared state
+  rather than local to the Entries page component.
 - FR-18: Bulk-select entries on the Entries page to bulk-delete or bulk-set category.
 - FR-19: Bulk import time entries from CSV or XLSX (including multi-tab workbooks),
   targeted at one contract, with flexible date parsing and automatic creation of any

@@ -37,6 +37,17 @@ export const store = $state({
  * unsaved changes. Cleared automatically whenever navigation actually proceeds. */
 export const navGuard = $state({ isDirty: false })
 
+export type EntriesFilterPeriod = 'lastweek' | 'last2weeks' | 'month' | '3months' | 'all'
+
+/** Entries page filter state, lifted out of the component so it survives navigating
+ * away (e.g. into an entry's detail page, or anywhere else) and back — otherwise
+ * Svelte tears the page down and recreates it fresh, losing local component state. */
+export const entriesFilter = $state({
+  period: 'lastweek' as EntriesFilterPeriod,
+  contractId: '' as number | '',
+  trackingCodeId: '' as number | '',
+})
+
 export async function refreshArchivedTrackingCodes() {
   store.archivedTrackingCodes = await api.listArchivedTrackingCodes()
 }
