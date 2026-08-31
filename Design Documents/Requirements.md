@@ -128,10 +128,10 @@ mobile clients, remote import sources (e.g. OneNote/Graph).
   four sub-pages: **User**, **Backup & Restore**, **Trash**, and **Appearance**.
   - **User**: first/last/full name (full name defaults to "Last, First"), email,
     output folder (defaulting to the OS Documents folder, with a native folder
-    picker), output format preference, and database file size.
-  - **Backup & Restore**: Backup Data, Restore Data, and Purge All — split out of
-    User onto its own page, since it's a "your data" concern rather than a "who you
-    are" one.
+    picker), and output format preference.
+  - **Backup & Restore**: database file size, Backup Data, Restore Data, and Purge
+    All — split out of User onto its own page, since it's a "your data" concern
+    rather than a "who you are" one.
   - **Trash**: unchanged from FR-28/FR-30 — reached via Admin instead of its own
     top-nav entry.
   - **Appearance**: window size/position, default start page, and Colors (see
@@ -143,7 +143,8 @@ mobile clients, remote import sources (e.g. OneNote/Graph).
 - FR-33: A Colors section offers System/Light/Dark/Custom themes; Custom lets the user
   pick background, text, button-background, and button-text colors independently, live
   previewed as they're changed.
-- FR-34: The Admin → User page shows the current on-disk database file size.
+- FR-34: The Admin → Backup & Restore page shows the current on-disk database file
+  size.
 - FR-35: A dirty-state Save button is visually distinct (greyed out) whenever nothing
   has changed since it was loaded, on every editable form in the app.
 - FR-36: Navigating away from a page with unsaved changes (including via the app's own

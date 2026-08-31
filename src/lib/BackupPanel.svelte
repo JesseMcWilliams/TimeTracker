@@ -1,9 +1,17 @@
 <script lang="ts">
+  import { onMount } from 'svelte'
   import { open, confirm } from '@tauri-apps/plugin-dialog'
   import { api, type BackupFile, type RestoreResult, type PurgeAllResult } from './api'
   import { refreshAll } from './store.svelte'
+  import { formatBytes } from './dateUtils'
 
   let { onBack }: { onBack: () => void } = $props()
+
+  let dbSize = $state<number | null>(null)
+
+  onMount(async () => {
+    dbSize = await api.getDatabaseSize()
+  })
 
   let backupBusy = $state(false)
   let backupResult = $state<BackupFile[] | null>(null)
@@ -75,6 +83,7 @@
   <button onclick={onBack}>&larr; Back to Admin</button>
 
   <h2>Backup &amp; Restore</h2>
+  <p class="muted">Database size: {dbSize === null ? 'loading…' : formatBytes(dbSize)}</p>
   <p class="muted">
     Backup writes one CSV per data type (Clients, Contracts, Contract Rates, Categories,
     Time Entries) to your output folder. Restore reads those CSVs back in — it only adds
