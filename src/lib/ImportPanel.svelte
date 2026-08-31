@@ -1,6 +1,6 @@
 <script lang="ts">
   import { open } from '@tauri-apps/plugin-dialog'
-  import { api, type ImportResult } from './api'
+  import { api, type ImportPreviewSheet, type ImportResult } from './api'
   import { store, activeClients, activeContracts } from './store.svelte'
 
   let { onGoToTemplate }: { onGoToTemplate: (templateId: number | null) => void } = $props()
@@ -12,7 +12,9 @@
   let result = $state<ImportResult | null>(null)
   let error = $state('')
   let templateId = $state<number | ''>('')
-  let initializedTemplate = $state(false)
+  let previewing = $state(false)
+  let preview = $state<ImportPreviewSheet[] | null>(null)
+  let previewError = $state('')
 
   let contractsForClient = $derived(clientId ? activeContracts().filter((c) => c.clientId === Number(clientId)) : [])
 
@@ -20,13 +22,17 @@
     contractId = ''
   })
 
-  // Pick the flagged default template once templates have loaded, but only the
-  // first time — don't fight the user's own dropdown choice on every store update.
+  // Keep templateId pointing at a real template at all times: pick the flagged default
+  // (or the first one) whenever there's no selection yet, or the previously-selected
+  // template has just been deleted — but otherwise leave the user's own choice alone.
   $effect(() => {
-    if (initializedTemplate || store.importTemplates.length === 0) return
+    if (store.importTemplates.length === 0) {
+      templateId = ''
+      return
+    }
+    if (templateId !== '' && store.importTemplates.some((t) => t.id === Number(templateId))) return
     const def = store.importTemplates.find((t) => t.isDefault) ?? store.importTemplates[0]
     templateId = def.id
-    initializedTemplate = true
   })
 
   let selectedTemplate = $derived(
@@ -43,10 +49,31 @@
     } else if (typeof selected === 'string') {
       filePaths = [selected]
     }
+    preview = null
+    previewError = ''
   }
 
   function fileName(path: string): string {
     return path.split(/[\\/]/).pop() ?? path
+  }
+
+  function onTemplateChange() {
+    preview = null
+    previewError = ''
+  }
+
+  async function runPreview() {
+    if (!templateId || filePaths.length === 0) return
+    previewing = true
+    previewError = ''
+    preview = null
+    try {
+      preview = await api.previewImport(filePaths, Number(templateId))
+    } catch (e) {
+      previewError = String(e)
+    } finally {
+      previewing = false
+    }
   }
 
   async function runImport() {
@@ -57,6 +84,7 @@
     try {
       result = await api.importTimeEntries(Number(contractId), filePaths, Number(templateId))
       filePaths = []
+      preview = null
     } catch (e) {
       error = String(e)
     } finally {
@@ -91,7 +119,7 @@
 
   <div class="row">
     <label for="template-select">Template</label>
-    <select id="template-select" bind:value={templateId}>
+    <select id="template-select" bind:value={templateId} onchange={onTemplateChange}>
       {#each store.importTemplates as t (t.id)}
         <option value={t.id}>{t.name}{t.isDefault ? ' (default)' : ''}</option>
       {/each}
@@ -101,10 +129,10 @@
   </div>
   {#if selectedTemplate}
     <p class="muted template-summary">
-      Columns: <strong>{selectedTemplate.dateColumn}</strong>, <strong>{selectedTemplate.startColumn}</strong>,
-      <strong>{selectedTemplate.endColumn}</strong>{#if selectedTemplate.categoryColumn}, <strong
-          >{selectedTemplate.categoryColumn}</strong
-        > (category){/if}{#if selectedTemplate.notesColumn}, <strong>{selectedTemplate.notesColumn}</strong> (notes)
+      Columns: <strong>{selectedTemplate.dateColumns}</strong>, <strong>{selectedTemplate.startColumns}</strong>,
+      <strong>{selectedTemplate.endColumns}</strong>{#if selectedTemplate.categoryColumns}, <strong
+          >{selectedTemplate.categoryColumns}</strong
+        > (category){/if}{#if selectedTemplate.notesColumns}, <strong>{selectedTemplate.notesColumns}</strong> (notes)
       {/if}{#if selectedTemplate.notes}<br />{selectedTemplate.notes}{/if}
     </p>
   {/if}
@@ -124,7 +152,67 @@
     </ul>
   {/if}
 
-  <button onclick={runImport} disabled={busy || !contractId || !templateId || filePaths.length === 0}>Import</button>
+  <div class="row">
+    <button onclick={runImport} disabled={busy || !contractId || !templateId || filePaths.length === 0}
+      >Import</button
+    >
+    <button
+      type="button"
+      onclick={runPreview}
+      disabled={previewing || !templateId || filePaths.length === 0}>Preview…</button
+    >
+  </div>
+
+  {#if previewError}
+    <div class="error">{previewError}</div>
+  {/if}
+
+  {#if preview}
+    <div class="preview">
+      {#each preview as sheet}
+        <div class="preview-sheet">
+          <p class="preview-label">{sheet.label}</p>
+          {#if sheet.error}
+            <p class="error inline">{sheet.error}</p>
+          {:else}
+            <p class="muted">
+              Date → <strong>{sheet.matchedDateColumn}</strong>, Start → <strong>{sheet.matchedStartColumn}</strong>,
+              End → <strong>{sheet.matchedEndColumn}</strong>, Category →
+              <strong>{sheet.matchedCategoryColumn ?? '(not found)'}</strong>, Notes →
+              <strong>{sheet.matchedNotesColumn ?? '(not found)'}</strong>
+            </p>
+            {#each sheet.warnings as w}
+              <p class="warning inline">{w}</p>
+            {/each}
+            {#if sheet.sampleRows.length > 0}
+              <table class="preview-table">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Start</th>
+                    <th>End</th>
+                    <th>Category</th>
+                    <th>Notes</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {#each sheet.sampleRows as row}
+                    <tr>
+                      <td>{row.date}</td>
+                      <td>{row.start}</td>
+                      <td>{row.end}</td>
+                      <td>{row.category}</td>
+                      <td>{row.notes}</td>
+                    </tr>
+                  {/each}
+                </tbody>
+              </table>
+            {/if}
+          {/if}
+        </div>
+      {/each}
+    </div>
+  {/if}
 
   {#if error}
     <div class="error">{error}</div>
@@ -133,6 +221,13 @@
   {#if result}
     <div class="result">
       <p><strong>{result.imported}</strong> imported, <strong>{result.skipped}</strong> skipped.</p>
+      {#if result.warnings.length > 0}
+        <ul class="warnings">
+          {#each result.warnings as w}
+            <li>{w}</li>
+          {/each}
+        </ul>
+      {/if}
       {#if result.errors.length > 0}
         <ul class="errors">
           {#each result.errors as err}
@@ -172,11 +267,56 @@
     padding: 0.5rem 0.75rem;
     margin-top: 0.75rem;
   }
+  .error.inline {
+    margin-top: 0.25rem;
+    padding: 0.35rem 0.6rem;
+    font-size: 0.85rem;
+  }
+  .warning {
+    background: #fff3cd;
+    color: #664d03;
+    border: 1px solid #ffe69c;
+    border-radius: 4px;
+    padding: 0.35rem 0.6rem;
+    font-size: 0.85rem;
+    margin-top: 0.25rem;
+  }
   .result {
     margin-top: 1rem;
   }
   .errors {
     color: #b91c1c;
     font-size: 0.85rem;
+  }
+  .warnings {
+    color: #8a6500;
+    font-size: 0.85rem;
+  }
+  .preview {
+    margin-top: 0.75rem;
+    border: 1px solid var(--border, #ddd);
+    border-radius: 4px;
+    padding: 0.75rem;
+  }
+  .preview-sheet + .preview-sheet {
+    margin-top: 0.75rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--border, #ddd);
+  }
+  .preview-label {
+    font-weight: 600;
+    margin: 0 0 0.25rem;
+  }
+  .preview-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 0.5rem;
+    font-size: 0.85rem;
+  }
+  .preview-table th,
+  .preview-table td {
+    text-align: left;
+    padding: 0.2rem 0.5rem;
+    border-bottom: 1px solid var(--border, #eee);
   }
 </style>

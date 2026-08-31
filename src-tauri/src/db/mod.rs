@@ -46,6 +46,10 @@ const MIGRATIONS: &[(&str, &str)] = &[
         "0012_import_templates",
         include_str!("../../migrations/0012_import_templates.sql"),
     ),
+    (
+        "0013_import_template_column_aliases",
+        include_str!("../../migrations/0013_import_template_column_aliases.sql"),
+    ),
 ];
 
 pub fn open(db_path: &Path) -> rusqlite::Result<Connection> {

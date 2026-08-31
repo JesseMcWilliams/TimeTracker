@@ -71,12 +71,14 @@ time_entries(id, contract_id, started_at, ended_at, duration_secs, rate_snapshot
 tags / time_entry_tags
   -- present in the schema; not currently exposed in the UI beyond the domain layer.
 
-import_templates(id, name, notes, is_default, date_column, start_column, end_column,
-                  category_column, notes_column, created_at)
-  -- named, reusable column-name mappings for bulk import; category_column/
-  -- notes_column are nullable (blank = don't look for that column at all).
-  -- is_default is enforced single-true by application logic (clear-other-defaults
-  -- on save), not a DB constraint.
+import_templates(id, name, notes, is_default, date_columns, start_columns, end_columns,
+                  category_columns, notes_columns, created_at)
+  -- named, reusable column-name mappings for bulk import. Each *_columns field holds
+  -- a comma-separated list of acceptable header aliases (e.g. "Start, Start Time"),
+  -- tried in order; category_columns/notes_columns are nullable (blank = don't look
+  -- for that column at all). is_default is enforced single-true by application logic
+  -- (clear-other-defaults on save), not a DB constraint. Deleting the last remaining
+  -- template is blocked at the domain layer (Import always needs one to select).
 
 user_profile(id=1, first_name, last_name, full_name, email, output_folder,
              output_type, window_width, window_height, window_x, window_y,
@@ -111,8 +113,8 @@ Key invariants enforced by design, not just convention:
 | `domain/reports.rs` | Aggregate Week/Month report grouped by client → contract. |
 | `domain/timesheets.rs` | Per-contract `.xlsx` generation, honoring each client's own week boundaries, optional scoping to one client/contract. |
 | `domain/period.rs` | Pure date-range math (week/month resolution for arbitrary start/end weekdays). |
-| `domain/import.rs` | CSV/XLSX bulk import: multi-tab, flexible date/time parsing (24h and 12h AM/PM), auto-creates unknown categories, resolves column names via a selected import template. |
-| `domain/import_templates.rs` | Import Template CRUD; enforces at most one default template by clearing the flag on every other row when a save sets it. |
+| `domain/import.rs` | CSV/XLSX bulk import: multi-tab, flexible date/time parsing (24h and 12h AM/PM), auto-creates unknown categories, resolves each field against a template's comma-separated column aliases (`resolve_columns`, shared between actually importing and `preview_import`'s dry-run). An optional column named by the template but not found in a given file produces a warning rather than an error. |
+| `domain/import_templates.rs` | Import Template CRUD plus delete (blocked when it's the last remaining template); enforces at most one default template by clearing the flag on every other row when a save sets it; `split_aliases` turns a field's comma-separated value into the ordered list `import.rs` tries. |
 | `domain/backup.rs` | Table-driven CSV backup/restore (additive-only restore, matched by id). |
 | `domain/purge.rs` | Per-row dependency-checked permanent deletion, always backup-first; `purge_all_data`. |
 | `domain/user_profile.rs` | Single-row profile get/save. |
@@ -169,13 +171,18 @@ Key invariants enforced by design, not just convention:
   the change immediately — `EntriesPanel` happened to mask this before it was added to
   Restore, since it independently re-fetches its own data on every mount.
 - `ImportPanel.svelte` — CSV/XLSX bulk import into one contract; a template `<select>`
-  (auto-selecting the flagged default) plus Add…/Edit… buttons drives which column
-  names `import.rs` looks for, with a summary line showing the selected template's
-  configured columns.
+  (auto-selecting the flagged default, and re-selecting a default if the current
+  choice is ever deleted out from under it) plus Add…/Edit… buttons drives which
+  column names `import.rs` looks for, with a summary line showing the selected
+  template's configured columns. A "Preview…" action calls `previewImport` and renders
+  each file/tab's matched columns, any not-found-optional-column warnings, and a few
+  sample rows, without importing anything; the import result itself separates
+  non-fatal warnings from hard errors.
 - `ImportTemplateDetail.svelte` — add/edit page for one Import Template (name, notes,
-  default flag, and the five column-name fields), following the standard
-  dirty-tracking/`navGuard` detail-page pattern; reached from `ImportPanel`'s Add…/
-  Edit… buttons.
+  default flag, and the five column-alias fields, each accepting a comma-separated
+  list), following the standard dirty-tracking/`navGuard` detail-page pattern; reached
+  from `ImportPanel`'s Add…/Edit… buttons. A Delete button (edit mode only, disabled
+  when it's the last remaining template) removes a template after a confirm prompt.
 - `AppearancePanel.svelte` — window size/position, default start page, and Colors.
   Reached via Admin → Appearance. Split out of what used to be `UserPanel.svelte`
   because "who you are" and "how the app looks/opens" are different enough concerns

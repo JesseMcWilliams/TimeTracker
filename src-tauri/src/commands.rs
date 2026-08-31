@@ -396,6 +396,16 @@ pub fn import_time_entries(
 }
 
 #[tauri::command]
+pub fn preview_import(
+    state: State<AppState>,
+    file_paths: Vec<String>,
+    template_id: i64,
+) -> CmdResult<Vec<import::ImportPreviewSheet>> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    import::preview_import(&conn, &file_paths, template_id)
+}
+
+#[tauri::command]
 pub fn list_import_templates(state: State<AppState>) -> CmdResult<Vec<ImportTemplate>> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
     import_templates::list_import_templates(&conn)
@@ -408,11 +418,11 @@ pub fn create_import_template(
     name: String,
     notes: Option<String>,
     is_default: bool,
-    date_column: String,
-    start_column: String,
-    end_column: String,
-    category_column: Option<String>,
-    notes_column: Option<String>,
+    date_columns: String,
+    start_columns: String,
+    end_columns: String,
+    category_columns: Option<String>,
+    notes_columns: Option<String>,
 ) -> CmdResult<i64> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
     import_templates::create_import_template(
@@ -420,11 +430,11 @@ pub fn create_import_template(
         &name,
         notes.as_deref(),
         is_default,
-        &date_column,
-        &start_column,
-        &end_column,
-        category_column.as_deref(),
-        notes_column.as_deref(),
+        &date_columns,
+        &start_columns,
+        &end_columns,
+        category_columns.as_deref(),
+        notes_columns.as_deref(),
     )
 }
 
@@ -436,11 +446,11 @@ pub fn update_import_template(
     name: String,
     notes: Option<String>,
     is_default: bool,
-    date_column: String,
-    start_column: String,
-    end_column: String,
-    category_column: Option<String>,
-    notes_column: Option<String>,
+    date_columns: String,
+    start_columns: String,
+    end_columns: String,
+    category_columns: Option<String>,
+    notes_columns: Option<String>,
 ) -> CmdResult<()> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
     import_templates::update_import_template(
@@ -449,12 +459,18 @@ pub fn update_import_template(
         &name,
         notes.as_deref(),
         is_default,
-        &date_column,
-        &start_column,
-        &end_column,
-        category_column.as_deref(),
-        notes_column.as_deref(),
+        &date_columns,
+        &start_columns,
+        &end_columns,
+        category_columns.as_deref(),
+        notes_columns.as_deref(),
     )
+}
+
+#[tauri::command]
+pub fn delete_import_template(state: State<AppState>, id: i64) -> CmdResult<()> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    import_templates::delete_import_template(&conn, id)
 }
 
 #[tauri::command]

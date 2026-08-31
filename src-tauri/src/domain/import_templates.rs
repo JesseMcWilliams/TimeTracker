@@ -10,15 +10,21 @@ pub struct ImportTemplate {
     pub name: String,
     pub notes: Option<String>,
     pub is_default: bool,
-    pub date_column: String,
-    pub start_column: String,
-    pub end_column: String,
-    pub category_column: Option<String>,
-    pub notes_column: Option<String>,
+    pub date_columns: String,
+    pub start_columns: String,
+    pub end_columns: String,
+    pub category_columns: Option<String>,
+    pub notes_columns: Option<String>,
 }
 
-const COLUMNS: &str = "id, name, notes, is_default, date_column, start_column, end_column, \
-     category_column, notes_column";
+/// Splits a template field's comma-separated alias list (e.g. "Start, Start Time")
+/// into trimmed, non-empty names, tried in order against a file's header row.
+pub fn split_aliases(s: &str) -> Vec<String> {
+    s.split(',').map(|part| part.trim().to_string()).filter(|part| !part.is_empty()).collect()
+}
+
+const COLUMNS: &str = "id, name, notes, is_default, date_columns, start_columns, end_columns, \
+     category_columns, notes_columns";
 
 fn row_to_template(row: &rusqlite::Row) -> rusqlite::Result<ImportTemplate> {
     Ok(ImportTemplate {
@@ -26,11 +32,11 @@ fn row_to_template(row: &rusqlite::Row) -> rusqlite::Result<ImportTemplate> {
         name: row.get(1)?,
         notes: row.get(2)?,
         is_default: row.get::<_, i64>(3)? != 0,
-        date_column: row.get(4)?,
-        start_column: row.get(5)?,
-        end_column: row.get(6)?,
-        category_column: row.get(7)?,
-        notes_column: row.get(8)?,
+        date_columns: row.get(4)?,
+        start_columns: row.get(5)?,
+        end_columns: row.get(6)?,
+        category_columns: row.get(7)?,
+        notes_columns: row.get(8)?,
     })
 }
 
@@ -64,17 +70,26 @@ pub fn create_import_template(
     name: &str,
     notes: Option<&str>,
     is_default: bool,
-    date_column: &str,
-    start_column: &str,
-    end_column: &str,
-    category_column: Option<&str>,
-    notes_column: Option<&str>,
+    date_columns: &str,
+    start_columns: &str,
+    end_columns: &str,
+    category_columns: Option<&str>,
+    notes_columns: Option<&str>,
 ) -> DomainResult<i64> {
     conn.execute(
         "INSERT INTO import_templates
-            (name, notes, is_default, date_column, start_column, end_column, category_column, notes_column)
+            (name, notes, is_default, date_columns, start_columns, end_columns, category_columns, notes_columns)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-        params![name, notes, is_default as i64, date_column, start_column, end_column, category_column, notes_column],
+        params![
+            name,
+            notes,
+            is_default as i64,
+            date_columns,
+            start_columns,
+            end_columns,
+            category_columns,
+            notes_columns
+        ],
     )
     .map_err(|e| e.to_string())?;
     let id = conn.last_insert_rowid();
@@ -91,25 +106,25 @@ pub fn update_import_template(
     name: &str,
     notes: Option<&str>,
     is_default: bool,
-    date_column: &str,
-    start_column: &str,
-    end_column: &str,
-    category_column: Option<&str>,
-    notes_column: Option<&str>,
+    date_columns: &str,
+    start_columns: &str,
+    end_columns: &str,
+    category_columns: Option<&str>,
+    notes_columns: Option<&str>,
 ) -> DomainResult<()> {
     conn.execute(
-        "UPDATE import_templates SET name = ?1, notes = ?2, is_default = ?3, date_column = ?4,
-            start_column = ?5, end_column = ?6, category_column = ?7, notes_column = ?8
+        "UPDATE import_templates SET name = ?1, notes = ?2, is_default = ?3, date_columns = ?4,
+            start_columns = ?5, end_columns = ?6, category_columns = ?7, notes_columns = ?8
          WHERE id = ?9",
         params![
             name,
             notes,
             is_default as i64,
-            date_column,
-            start_column,
-            end_column,
-            category_column,
-            notes_column,
+            date_columns,
+            start_columns,
+            end_columns,
+            category_columns,
+            notes_columns,
             id
         ],
     )
@@ -118,4 +133,48 @@ pub fn update_import_template(
         clear_other_defaults(conn, Some(id))?;
     }
     Ok(())
+}
+
+/// Import always needs at least one template to fall back to, so deleting the last
+/// remaining one is blocked rather than leaving the Import page with nothing to select.
+pub fn delete_import_template(conn: &Connection, id: i64) -> DomainResult<()> {
+    let count: i64 =
+        conn.query_row("SELECT COUNT(*) FROM import_templates", [], |row| row.get(0)).map_err(|e| e.to_string())?;
+    if count <= 1 {
+        return Err("cannot delete the last remaining import template — at least one must exist".to_string());
+    }
+    let deleted = conn.execute("DELETE FROM import_templates WHERE id = ?1", params![id]).map_err(|e| e.to_string())?;
+    if deleted == 0 {
+        return Err(format!("import template {id} not found"));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_conn() -> Connection {
+        let path = std::env::temp_dir()
+            .join(format!("timetracker_test_{}_import_templates.sqlite", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        crate::db::open(&path).expect("open db")
+    }
+
+    #[test]
+    fn deleting_the_last_remaining_template_is_blocked() {
+        let conn = temp_conn();
+        // Migration 0012 seeds two templates ("Default", "Activity Sheet") — delete one
+        // to get down to exactly one, which should then refuse further deletion.
+        let templates = list_import_templates(&conn).expect("list templates");
+        assert_eq!(templates.len(), 2);
+
+        delete_import_template(&conn, templates[0].id).expect("delete first template");
+        let remaining = list_import_templates(&conn).expect("list templates");
+        assert_eq!(remaining.len(), 1);
+
+        let err = delete_import_template(&conn, remaining[0].id).expect_err("must block deleting the last one");
+        assert!(err.contains("last remaining"), "unexpected message: {err}");
+        assert_eq!(list_import_templates(&conn).expect("list templates").len(), 1);
+    }
 }

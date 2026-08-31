@@ -5,7 +5,7 @@ use chrono::{Local, LocalResult, NaiveDate, NaiveDateTime, NaiveTime, TimeZone};
 use rusqlite::{params, Connection};
 use serde::Serialize;
 
-use super::import_templates::get_import_template;
+use super::import_templates::{get_import_template, split_aliases, ImportTemplate};
 use super::time_entries::create_manual_entry;
 use super::tracking_codes::{create_tracking_code, list_tracking_codes, TrackingCode};
 use super::DomainResult;
@@ -16,6 +16,9 @@ pub struct ImportResult {
     pub imported: i64,
     pub skipped: i64,
     pub errors: Vec<String>,
+    /// Non-fatal issues that didn't block any row from importing — currently just a
+    /// template's optional Category/Notes column not being found in a file's headers.
+    pub warnings: Vec<String>,
 }
 
 fn client_id_for_contract(conn: &Connection, contract_id: i64) -> DomainResult<i64> {
@@ -98,6 +101,81 @@ fn read_xlsx_sources(path: &Path, file_label: &str) -> Result<Vec<RowSource>, St
 
 fn find_col(headers: &[String], name: &str) -> Option<usize> {
     headers.iter().position(|h| h.trim().eq_ignore_ascii_case(name))
+}
+
+/// Tries each alias in order, returning the index of the first one found. A template
+/// field with several acceptable header names (e.g. "Start" or "Start Time") only
+/// needs one of them present in a given file.
+fn find_col_any(headers: &[String], aliases: &[String]) -> Option<usize> {
+    aliases.iter().find_map(|name| find_col(headers, name))
+}
+
+fn format_aliases(aliases: &[String]) -> String {
+    if aliases.is_empty() {
+        return "(not set)".to_string();
+    }
+    aliases.iter().map(|a| format!("'{a}'")).collect::<Vec<_>>().join(" or ")
+}
+
+/// Which column index (if any) satisfies each of a template's fields against one
+/// file/sheet's header row, resolved once per sheet and shared between actually
+/// importing and previewing without committing.
+struct ResolvedColumns {
+    date_col: usize,
+    start_col: usize,
+    end_col: usize,
+    category_col: Option<usize>,
+    notes_col: Option<usize>,
+    /// Set when the template names a Category column but none of its aliases were
+    /// found in this file's headers — the import still proceeds with every row
+    /// treated as blank-category, so this is surfaced as a warning, not an error.
+    category_warning: Option<String>,
+    notes_warning: Option<String>,
+}
+
+fn resolve_columns(headers: &[String], template: &ImportTemplate) -> Result<ResolvedColumns, String> {
+    let date_aliases = split_aliases(&template.date_columns);
+    let start_aliases = split_aliases(&template.start_columns);
+    let end_aliases = split_aliases(&template.end_columns);
+    let category_aliases = template.category_columns.as_deref().map(split_aliases).unwrap_or_default();
+    let notes_aliases = template.notes_columns.as_deref().map(split_aliases).unwrap_or_default();
+
+    let date_col = find_col_any(headers, &date_aliases);
+    let start_col = find_col_any(headers, &start_aliases);
+    let end_col = find_col_any(headers, &end_aliases);
+    let (date_col, start_col, end_col) = match (date_col, start_col, end_col) {
+        (Some(d), Some(s), Some(e)) => (d, s, e),
+        _ => {
+            return Err(format!(
+                "missing required column(s) — template '{}' expects {}, {}, {}",
+                template.name,
+                format_aliases(&date_aliases),
+                format_aliases(&start_aliases),
+                format_aliases(&end_aliases),
+            ))
+        }
+    };
+
+    let category_col = if category_aliases.is_empty() { None } else { find_col_any(headers, &category_aliases) };
+    let category_warning = (!category_aliases.is_empty() && category_col.is_none())
+        .then(|| format!("category column not found (expected {})", format_aliases(&category_aliases)));
+
+    let notes_col = if notes_aliases.is_empty() { None } else { find_col_any(headers, &notes_aliases) };
+    let notes_warning = (!notes_aliases.is_empty() && notes_col.is_none())
+        .then(|| format!("notes column not found (expected {})", format_aliases(&notes_aliases)));
+
+    Ok(ResolvedColumns { date_col, start_col, end_col, category_col, notes_col, category_warning, notes_warning })
+}
+
+/// Dispatches to the CSV or XLSX reader by extension — shared between actually
+/// importing and previewing so both see identical rows/sheets.
+fn read_sources(path: &Path, file_label: &str) -> Result<Vec<RowSource>, String> {
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+    match ext.as_str() {
+        "csv" => read_csv_rows(path).map(|rows| vec![RowSource { label: file_label.to_string(), rows }]),
+        "xlsx" | "xls" | "xlsm" => read_xlsx_sources(path, file_label),
+        other => Err(format!("unsupported file type '.{other}'")),
+    }
 }
 
 /// Accepts the app's own ISO export format as well as common spreadsheet date formats
@@ -200,12 +278,15 @@ fn parse_row_times(date_str: &str, start_str: &str, end_str: &str) -> Result<(St
 
 /// Imports time entries from one or more CSV/XLSX files against a single contract,
 /// using `template_id` to know which column names to look for (see
-/// `import_templates`). An XLSX workbook with multiple tabs has every tab imported
-/// (each tab is treated as its own block of rows, with its own header row). Column
-/// matching is case-insensitive; extra columns (like a computed "Hours") are ignored
-/// since duration is derived from Start/End directly. The template's category/notes
-/// columns are optional — leave one blank in the template to skip looking for it
-/// entirely. Rows with a date but blank Start/End are skipped silently (e.g. a
+/// `import_templates`) — each field may name several comma-separated alias column
+/// names, the first of which found in a file's header row wins. An XLSX workbook with
+/// multiple tabs has every tab imported (each tab is treated as its own block of rows,
+/// with its own header row). Column matching is case-insensitive; extra columns (like
+/// a computed "Hours") are ignored since duration is derived from Start/End directly.
+/// The template's category/notes columns are optional — leave one blank in the
+/// template to skip looking for it entirely; naming one that isn't found in a given
+/// file produces a warning (not an error) and that file's rows import with a blank
+/// category/notes. Rows with a date but blank Start/End are skipped silently (e.g. a
 /// placeholder zero-hour day), rather than reported as errors. Times accept both
 /// 24-hour and 12-hour-with-AM/PM formats.
 pub fn import_time_entries(
@@ -221,6 +302,7 @@ pub fn import_time_entries(
     let mut imported = 0i64;
     let mut skipped = 0i64;
     let mut errors = Vec::new();
+    let mut warnings = Vec::new();
 
     for path_str in file_paths {
         let path = Path::new(path_str);
@@ -228,15 +310,8 @@ pub fn import_time_entries(
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_else(|| path_str.clone());
-        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
 
-        let sources = match ext.as_str() {
-            "csv" => read_csv_rows(path).map(|rows| vec![RowSource { label: file_label.clone(), rows }]),
-            "xlsx" | "xls" | "xlsm" => read_xlsx_sources(path, &file_label),
-            other => Err(format!("unsupported file type '.{other}'")),
-        };
-
-        let sources = match sources {
+        let sources = match read_sources(path, &file_label) {
             Ok(s) => s,
             Err(e) => {
                 errors.push(format!("{file_label}: {e}"));
@@ -254,22 +329,22 @@ pub fn import_time_entries(
             }
 
             let headers = &rows[0];
-            let date_col = find_col(headers, &template.date_column);
-            let start_col = find_col(headers, &template.start_column);
-            let end_col = find_col(headers, &template.end_column);
-            let category_col = template.category_column.as_deref().and_then(|name| find_col(headers, name));
-            let notes_col = template.notes_column.as_deref().and_then(|name| find_col(headers, name));
-
-            let (date_col, start_col, end_col) = match (date_col, start_col, end_col) {
-                (Some(d), Some(s), Some(e)) => (d, s, e),
-                _ => {
-                    errors.push(format!(
-                        "{label}: missing required column(s) — template '{}' expects '{}', '{}', '{}'",
-                        template.name, template.date_column, template.start_column, template.end_column
-                    ));
+            let resolved = match resolve_columns(headers, &template) {
+                Ok(r) => r,
+                Err(e) => {
+                    errors.push(format!("{label}: {e}"));
                     continue;
                 }
             };
+            if let Some(w) = &resolved.category_warning {
+                warnings.push(format!("{label}: {w}"));
+            }
+            if let Some(w) = &resolved.notes_warning {
+                warnings.push(format!("{label}: {w}"));
+            }
+            let (date_col, start_col, end_col) = (resolved.date_col, resolved.start_col, resolved.end_col);
+            let category_col = resolved.category_col;
+            let notes_col = resolved.notes_col;
 
             for (row_idx, row) in rows.iter().enumerate().skip(1) {
                 let get = |col: usize| row.get(col).map(|s| s.as_str()).unwrap_or("");
@@ -334,7 +409,154 @@ pub fn import_time_entries(
         }
     }
 
-    Ok(ImportResult { imported, skipped, errors })
+    Ok(ImportResult { imported, skipped, errors, warnings })
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportPreviewSample {
+    pub date: String,
+    pub start: String,
+    pub end: String,
+    pub category: String,
+    pub notes: String,
+}
+
+/// One file, or one tab within an XLSX workbook — mirrors `RowSource`, but reports what
+/// the template *would* match instead of committing anything.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportPreviewSheet {
+    pub label: String,
+    /// Set instead of the matched-column fields when a sheet can't be previewed at all
+    /// (empty sheet, or the template's required columns aren't present).
+    pub error: Option<String>,
+    pub warnings: Vec<String>,
+    pub matched_date_column: Option<String>,
+    pub matched_start_column: Option<String>,
+    pub matched_end_column: Option<String>,
+    pub matched_category_column: Option<String>,
+    pub matched_notes_column: Option<String>,
+    /// Up to the first few data rows, exactly as they'll be read — lets a user catch a
+    /// wrong template/column mapping before importing hundreds of rows on top of it.
+    pub sample_rows: Vec<ImportPreviewSample>,
+}
+
+const PREVIEW_SAMPLE_ROWS: usize = 3;
+
+/// Reports, per file/sheet, which of the template's columns matched and a few sample
+/// rows — without creating any time entries. Lets the Import screen show "here's what
+/// would happen" before the user commits to a potentially large import.
+pub fn preview_import(
+    conn: &Connection,
+    file_paths: &[String],
+    template_id: i64,
+) -> DomainResult<Vec<ImportPreviewSheet>> {
+    let template = get_import_template(conn, template_id)?;
+    let mut sheets = Vec::new();
+
+    for path_str in file_paths {
+        let path = Path::new(path_str);
+        let file_label = path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| path_str.clone());
+
+        let sources = match read_sources(path, &file_label) {
+            Ok(s) => s,
+            Err(e) => {
+                sheets.push(ImportPreviewSheet {
+                    label: file_label,
+                    error: Some(e),
+                    warnings: Vec::new(),
+                    matched_date_column: None,
+                    matched_start_column: None,
+                    matched_end_column: None,
+                    matched_category_column: None,
+                    matched_notes_column: None,
+                    sample_rows: Vec::new(),
+                });
+                continue;
+            }
+        };
+
+        for source in sources {
+            let label = source.label;
+            let rows = source.rows;
+
+            if rows.is_empty() {
+                sheets.push(ImportPreviewSheet {
+                    label,
+                    error: Some("sheet is empty".to_string()),
+                    warnings: Vec::new(),
+                    matched_date_column: None,
+                    matched_start_column: None,
+                    matched_end_column: None,
+                    matched_category_column: None,
+                    matched_notes_column: None,
+                    sample_rows: Vec::new(),
+                });
+                continue;
+            }
+
+            let headers = &rows[0];
+            let resolved = match resolve_columns(headers, &template) {
+                Ok(r) => r,
+                Err(e) => {
+                    sheets.push(ImportPreviewSheet {
+                        label,
+                        error: Some(e),
+                        warnings: Vec::new(),
+                        matched_date_column: None,
+                        matched_start_column: None,
+                        matched_end_column: None,
+                        matched_category_column: None,
+                        matched_notes_column: None,
+                        sample_rows: Vec::new(),
+                    });
+                    continue;
+                }
+            };
+
+            let mut warnings = Vec::new();
+            if let Some(w) = &resolved.category_warning {
+                warnings.push(w.clone());
+            }
+            if let Some(w) = &resolved.notes_warning {
+                warnings.push(w.clone());
+            }
+
+            let get = |row: &[String], col: Option<usize>| {
+                col.and_then(|c| row.get(c)).map(|s| s.trim().to_string()).unwrap_or_default()
+            };
+            let sample_rows = rows
+                .iter()
+                .skip(1)
+                .take(PREVIEW_SAMPLE_ROWS)
+                .map(|row| ImportPreviewSample {
+                    date: get(row, Some(resolved.date_col)),
+                    start: get(row, Some(resolved.start_col)),
+                    end: get(row, Some(resolved.end_col)),
+                    category: get(row, resolved.category_col),
+                    notes: get(row, resolved.notes_col),
+                })
+                .collect();
+
+            sheets.push(ImportPreviewSheet {
+                label,
+                error: None,
+                warnings,
+                matched_date_column: Some(headers[resolved.date_col].clone()),
+                matched_start_column: Some(headers[resolved.start_col].clone()),
+                matched_end_column: Some(headers[resolved.end_col].clone()),
+                matched_category_column: resolved.category_col.map(|c| headers[c].clone()),
+                matched_notes_column: resolved.notes_col.map(|c| headers[c].clone()),
+                sample_rows,
+            });
+        }
+    }
+
+    Ok(sheets)
 }
 
 #[cfg(test)]
@@ -573,6 +795,114 @@ mod tests {
             .find(|e| e.notes.as_deref() == Some("blank category is fine even though this client has categories"))
             .expect("blank-category entry was imported");
         assert_eq!(blank_entry.tracking_code_id, None);
+
+        let _ = fs::remove_file(&db_path);
+        let _ = fs::remove_file(&csv_path);
+    }
+
+    #[test]
+    fn matches_a_later_alias_when_the_first_is_not_present() {
+        let db_path = temp_path("import_alias.sqlite");
+        let _ = fs::remove_file(&db_path);
+        let conn = crate::db::open(&db_path).expect("open db");
+
+        let client_id = create_client(&conn, "Alias Client", None).expect("create client");
+        let contract_id = create_contract(&conn, client_id, "Alias Contract", "USD", 45.0).expect("create contract");
+        let template_id = super::super::import_templates::create_import_template(
+            &conn,
+            "Alias Template",
+            None,
+            false,
+            "Date",
+            "Start Time, Start",
+            "End Time, End",
+            None,
+            None,
+        )
+        .expect("create template");
+
+        // The file only has "Start"/"End", not the first-listed "Start Time"/"End Time"
+        // alias — the second alias in each list should still be found.
+        let csv_path = temp_path("import_alias.csv");
+        fs::write(&csv_path, "Date,Start,End\n2026-08-21,09:00,10:00\n").expect("write csv");
+
+        let result =
+            import_time_entries(&conn, contract_id, &[csv_path.to_string_lossy().to_string()], template_id)
+                .expect("import csv");
+        assert_eq!(result.imported, 1, "errors: {:?}", result.errors);
+        assert!(result.warnings.is_empty());
+
+        let _ = fs::remove_file(&db_path);
+        let _ = fs::remove_file(&csv_path);
+    }
+
+    #[test]
+    fn warns_but_still_imports_when_an_optional_column_is_not_found() {
+        let db_path = temp_path("import_warn.sqlite");
+        let _ = fs::remove_file(&db_path);
+        let conn = crate::db::open(&db_path).expect("open db");
+
+        let client_id = create_client(&conn, "Warn Client", None).expect("create client");
+        let contract_id = create_contract(&conn, client_id, "Warn Contract", "USD", 45.0).expect("create contract");
+        let template_id = super::super::import_templates::create_import_template(
+            &conn,
+            "Warn Template",
+            None,
+            false,
+            "Date",
+            "Start Time",
+            "End Time",
+            Some("Category"),
+            Some("Notes"),
+        )
+        .expect("create template");
+
+        // The file has neither Category nor Notes columns the template names.
+        let csv_path = temp_path("import_warn.csv");
+        fs::write(&csv_path, "Date,Start Time,End Time\n2026-08-21,09:00,10:00\n").expect("write csv");
+
+        let result =
+            import_time_entries(&conn, contract_id, &[csv_path.to_string_lossy().to_string()], template_id)
+                .expect("import csv");
+        assert_eq!(result.imported, 1, "errors: {:?}", result.errors);
+        assert_eq!(result.warnings.len(), 2, "expected a warning each for category and notes: {:?}", result.warnings);
+        assert!(result.warnings.iter().any(|w| w.contains("category")));
+        assert!(result.warnings.iter().any(|w| w.contains("notes")));
+
+        let _ = fs::remove_file(&db_path);
+        let _ = fs::remove_file(&csv_path);
+    }
+
+    #[test]
+    fn preview_reports_matched_columns_and_sample_rows_without_importing() {
+        let db_path = temp_path("import_preview.sqlite");
+        let _ = fs::remove_file(&db_path);
+        let conn = crate::db::open(&db_path).expect("open db");
+        let template_id = template_id_named(&conn, "Default");
+
+        let csv_path = temp_path("import_preview.csv");
+        fs::write(
+            &csv_path,
+            "Date,Start Time,End Time,Category,Notes\n2026-08-21,09:00,10:00,BILLABLE,preview only\n",
+        )
+        .expect("write csv");
+
+        let sheets = preview_import(&conn, &[csv_path.to_string_lossy().to_string()], template_id)
+            .expect("preview import");
+        assert_eq!(sheets.len(), 1);
+        let sheet = &sheets[0];
+        assert!(sheet.error.is_none(), "unexpected error: {:?}", sheet.error);
+        assert!(sheet.warnings.is_empty());
+        assert_eq!(sheet.matched_date_column.as_deref(), Some("Date"));
+        assert_eq!(sheet.matched_start_column.as_deref(), Some("Start Time"));
+        assert_eq!(sheet.matched_end_column.as_deref(), Some("End Time"));
+        assert_eq!(sheet.matched_category_column.as_deref(), Some("Category"));
+        assert_eq!(sheet.matched_notes_column.as_deref(), Some("Notes"));
+        assert_eq!(sheet.sample_rows.len(), 1);
+        assert_eq!(sheet.sample_rows[0].notes, "preview only");
+
+        let entries = list_entries(&conn, &EntryFilter::default()).expect("list entries");
+        assert!(entries.is_empty(), "preview must not create any entries");
 
         let _ = fs::remove_file(&db_path);
         let _ = fs::remove_file(&csv_path);
