@@ -85,12 +85,12 @@ mobile clients, remote import sources (e.g. OneNote/Graph).
   the period — never one file per contract. Drilled into a specific **client**,
   output is scoped to just that client's combined workbook. Drilled into a specific
   **contract**, output is a single workbook for just that contract (named
-  `{date}_{client}_{contract}_{yourFullName}.xlsx`, contract name included, no
-  Contract column). A client-combined workbook (whether reached via "all clients" or
-  by drilling into that one client) is named `{date}_{client}_{yourFullName}.xlsx`
-  and gets a Contract column (rows interleaved chronologically across contracts) only
-  when more than one of its contracts actually has entries in the period; with just
-  one, it looks the same as a directly contract-scoped file.
+  `{date}_{client}_{contract}_{yourFullName}.xlsx`, contract name included). A
+  client-combined workbook (whether reached via "all clients" or by drilling into
+  that one client) is named `{date}_{client}_{yourFullName}.xlsx`, with rows
+  interleaved chronologically across contracts when it spans more than one. Every
+  exported workbook — single-contract or combined — includes a Contract column
+  identifying each row's contract.
 - FR-23: Each contract's timesheet period is computed from its own client's
   week-start/week-end (a report's aggregate week view always uses Mon–Sun regardless
   of any one client's setting, since that view mixes multiple clients at once).
