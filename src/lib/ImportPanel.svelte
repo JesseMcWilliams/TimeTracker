@@ -3,18 +3,35 @@
   import { api, type ImportResult } from './api'
   import { store, activeClients, activeContracts } from './store.svelte'
 
+  let { onGoToTemplate }: { onGoToTemplate: (templateId: number | null) => void } = $props()
+
   let clientId = $state<number | ''>('')
   let contractId = $state<number | ''>('')
   let filePaths = $state<string[]>([])
   let busy = $state(false)
   let result = $state<ImportResult | null>(null)
   let error = $state('')
+  let templateId = $state<number | ''>('')
+  let initializedTemplate = $state(false)
 
   let contractsForClient = $derived(clientId ? activeContracts().filter((c) => c.clientId === Number(clientId)) : [])
 
   $effect(() => {
     contractId = ''
   })
+
+  // Pick the flagged default template once templates have loaded, but only the
+  // first time — don't fight the user's own dropdown choice on every store update.
+  $effect(() => {
+    if (initializedTemplate || store.importTemplates.length === 0) return
+    const def = store.importTemplates.find((t) => t.isDefault) ?? store.importTemplates[0]
+    templateId = def.id
+    initializedTemplate = true
+  })
+
+  let selectedTemplate = $derived(
+    templateId ? store.importTemplates.find((t) => t.id === Number(templateId)) : undefined,
+  )
 
   async function chooseFiles() {
     const selected = await open({
@@ -33,12 +50,12 @@
   }
 
   async function runImport() {
-    if (!contractId || filePaths.length === 0) return
+    if (!contractId || !templateId || filePaths.length === 0) return
     busy = true
     error = ''
     result = null
     try {
-      result = await api.importTimeEntries(Number(contractId), filePaths)
+      result = await api.importTimeEntries(Number(contractId), filePaths, Number(templateId))
       filePaths = []
     } catch (e) {
       error = String(e)
@@ -52,11 +69,9 @@
   <h2>Import</h2>
   <p class="muted">
     Import time entries from CSV or Excel files into a single contract. Every tab in an
-    Excel workbook is imported. Expected columns (case-insensitive, others ignored — e.g.
-    a computed "Hours" column): Date, Start Time (or "Start"), End Time (or "End"),
-    Category (optional — a category not already on the client is added automatically),
-    Notes (or "Activity", optional). Dates accept YYYY-MM-DD or M/D/YYYY; a row with a
-    date but no times is skipped.
+    Excel workbook is imported. Dates accept YYYY-MM-DD or M/D/YYYY; times accept 24-hour
+    or 12-hour with AM/PM. A row with a date but no times is skipped. Which column names
+    to look for is controlled by the template selected below.
   </p>
 
   <div class="row">
@@ -75,6 +90,26 @@
   </div>
 
   <div class="row">
+    <label for="template-select">Template</label>
+    <select id="template-select" bind:value={templateId}>
+      {#each store.importTemplates as t (t.id)}
+        <option value={t.id}>{t.name}{t.isDefault ? ' (default)' : ''}</option>
+      {/each}
+    </select>
+    <button type="button" onclick={() => onGoToTemplate(null)}>Add…</button>
+    <button type="button" onclick={() => onGoToTemplate(Number(templateId))} disabled={!templateId}>Edit…</button>
+  </div>
+  {#if selectedTemplate}
+    <p class="muted template-summary">
+      Columns: <strong>{selectedTemplate.dateColumn}</strong>, <strong>{selectedTemplate.startColumn}</strong>,
+      <strong>{selectedTemplate.endColumn}</strong>{#if selectedTemplate.categoryColumn}, <strong
+          >{selectedTemplate.categoryColumn}</strong
+        > (category){/if}{#if selectedTemplate.notesColumn}, <strong>{selectedTemplate.notesColumn}</strong> (notes)
+      {/if}{#if selectedTemplate.notes}<br />{selectedTemplate.notes}{/if}
+    </p>
+  {/if}
+
+  <div class="row">
     <button onclick={chooseFiles}>Choose file(s)…</button>
     {#if filePaths.length > 0}
       <span class="muted">{filePaths.length} file{filePaths.length > 1 ? 's' : ''} selected</span>
@@ -89,7 +124,7 @@
     </ul>
   {/if}
 
-  <button onclick={runImport} disabled={busy || !contractId || filePaths.length === 0}>Import</button>
+  <button onclick={runImport} disabled={busy || !contractId || !templateId || filePaths.length === 0}>Import</button>
 
   {#if error}
     <div class="error">{error}</div>

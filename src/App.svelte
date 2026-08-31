@@ -18,6 +18,7 @@
   import ReportsPanel from './lib/ReportsPanel.svelte'
   import QuickTimerPanel from './lib/QuickTimerPanel.svelte'
   import ImportPanel from './lib/ImportPanel.svelte'
+  import ImportTemplateDetail from './lib/ImportTemplateDetail.svelte'
 
   type View =
     | { name: 'timer' }
@@ -35,6 +36,7 @@
     | { name: 'appearance' }
     | { name: 'reports' }
     | { name: 'import' }
+    | { name: 'import-template'; templateId: number | null }
 
   let view = $state<View>({ name: 'timer' })
 
@@ -132,7 +134,12 @@
   {:else if view.name === 'reports'}
     <ReportsPanel />
   {:else if view.name === 'import'}
-    <ImportPanel />
+    <ImportPanel onGoToTemplate={(templateId) => navigate({ name: 'import-template', templateId })} />
+  {:else if view.name === 'import-template'}
+    <ImportTemplateDetail
+      templateId={view.templateId}
+      onBack={() => navigate({ name: 'import' })}
+    />
   {/if}
 </main>
 

@@ -1,4 +1,4 @@
-import { api, type Client, type Contract, type TimeEntry, type TrackingCode, type UserProfile } from './api'
+import { api, type Client, type Contract, type ImportTemplate, type TimeEntry, type TrackingCode, type UserProfile } from './api'
 
 const EMPTY_PROFILE: UserProfile = {
   firstName: null,
@@ -28,6 +28,7 @@ export const store = $state({
   activeTimers: [] as TimeEntry[],
   trackingCodesByClient: {} as Record<number, TrackingCode[]>,
   archivedTrackingCodes: [] as TrackingCode[],
+  importTemplates: [] as ImportTemplate[],
   userProfile: { ...EMPTY_PROFILE } as UserProfile,
   loading: false,
   error: '',
@@ -50,6 +51,10 @@ export const entriesFilter = $state({
 
 export async function refreshArchivedTrackingCodes() {
   store.archivedTrackingCodes = await api.listArchivedTrackingCodes()
+}
+
+export async function refreshImportTemplates() {
+  store.importTemplates = await api.listImportTemplates()
 }
 
 export async function refreshUserProfile() {
@@ -103,6 +108,7 @@ export async function refreshAll() {
       refreshEntries(),
       refreshActiveTimers(),
       refreshUserProfile(),
+      refreshImportTemplates(),
     ])
     store.error = ''
   } catch (e) {
