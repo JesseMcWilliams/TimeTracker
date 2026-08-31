@@ -152,19 +152,19 @@ fn unique_filename(base_name: &str, used_names: &mut HashSet<String>) -> String 
 }
 
 /// Writes one or more contracts' entries into a single workbook and saves it under
-/// `output_folder/filename`. When `groups` has more than one entry (a client-scoped
-/// timesheet spanning several contracts), a "Contract" column is added and rows from
-/// every contract are interleaved chronologically by start time — rather than
-/// grouped contract-by-contract — so the sheet reads as one continuous day-by-day
-/// log. Returns the saved path and the total entry count written.
+/// `output_folder/filename`. Every sheet gets a "Contract" column (even when there's
+/// only one, for a consistent column layout across every exported timesheet). When
+/// `groups` has more than one entry (a client-scoped timesheet spanning several
+/// contracts), rows from every contract are interleaved chronologically by start
+/// time — rather than grouped contract-by-contract — so the sheet reads as one
+/// continuous day-by-day log. Returns the saved path and the total entry count
+/// written.
 fn write_timesheet_workbook(
     output_folder: &str,
     filename: &str,
     include_rate_amount: bool,
     groups: Vec<(String, Vec<EntryRow>)>,
 ) -> DomainResult<(PathBuf, i64)> {
-    let include_contract_column = groups.len() > 1;
-
     let mut all: Vec<(String, EntryRow)> = groups
         .into_iter()
         .flat_map(|(name, entries)| entries.into_iter().map(move |e| (name.clone(), e)))
@@ -177,11 +177,7 @@ fn write_timesheet_workbook(
     let money_format = Format::new().set_num_format("#,##0.00");
     let money_bold_format = Format::new().set_num_format("#,##0.00").set_bold();
 
-    let mut headers: Vec<&str> = vec!["Date"];
-    if include_contract_column {
-        headers.push("Contract");
-    }
-    headers.extend_from_slice(&["Start Time", "End Time", "HH:MM", "Category", "Notes"]);
+    let mut headers: Vec<&str> = vec!["Date", "Contract", "Start Time", "End Time", "HH:MM", "Category", "Notes"];
     if include_rate_amount {
         headers.push("Rate");
         headers.push("Amount");
@@ -192,11 +188,7 @@ fn write_timesheet_workbook(
             .map_err(|e| e.to_string())?;
     }
 
-    let mut widths: Vec<f64> = vec![12.0];
-    if include_contract_column {
-        widths.push(18.0);
-    }
-    widths.extend_from_slice(&[11.0, 11.0, 8.0, 18.0, 40.0]);
+    let mut widths: Vec<f64> = vec![12.0, 18.0, 11.0, 11.0, 8.0, 18.0, 40.0];
     if include_rate_amount {
         widths.extend_from_slice(&[10.0, 12.0]);
     }
@@ -204,10 +196,9 @@ fn write_timesheet_workbook(
         worksheet.set_column_width(col as u16, *width).map_err(|e| e.to_string())?;
     }
 
-    // Column layout shifts right by one when a Contract column is present; computing
-    // these once keeps every write/total-row reference correct without duplicating
-    // the branch everywhere.
-    let base: u16 = if include_contract_column { 2 } else { 1 };
+    // Computing these once keeps every write/total-row reference correct without
+    // repeating the column layout everywhere.
+    let base: u16 = 2;
     let col_start = base;
     let col_end = base + 1;
     let col_hhmm = base + 2;
@@ -227,9 +218,7 @@ fn write_timesheet_workbook(
         total_amount += amount;
 
         worksheet.write(row, 0, local_date(&entry.started_at)).map_err(|e| e.to_string())?;
-        if include_contract_column {
-            worksheet.write(row, 1, contract_name.as_str()).map_err(|e| e.to_string())?;
-        }
+        worksheet.write(row, 1, contract_name.as_str()).map_err(|e| e.to_string())?;
         worksheet
             .write(row, col_start, local_time_hm_rounded(&entry.started_at, false))
             .map_err(|e| e.to_string())?;
@@ -292,18 +281,18 @@ fn fetch_client_ids_with_active_contracts(conn: &Connection) -> DomainResult<Vec
 /// just that contract, named `{date}_{client}_{contract}_{yourFullName}.xlsx`.
 /// Otherwise (no `contract_id`), writes one COMBINED .xlsx per client — either just
 /// the one `client_id` given, or every client that has an active contract — covering
-/// all of that client's contracts in a single sheet, with a Contract column
-/// identifying each row (see `generate_combined_client_timesheet`); a client with
-/// only one contract still gets its own file, just without a Contract column, since
-/// there's nothing to distinguish. `{date}` is either the first or last day of the
-/// resolved period, per each contract's own `filename_date` setting ("start"/"end";
-/// "end" — the last day — is the default; for a multi-contract client, "start" is
-/// only used if every one of its contracts agrees). For "week" periods, the range is
-/// computed from the relevant client's own `week_start`/`week_end`; "month" periods
-/// use the same calendar month for everyone. A client/contract with no entries in its
-/// resolved period is skipped rather than producing an empty file. Rate and Amount
-/// columns are only included when `include_rate_amount` is set, with Start/End times
-/// rounded to the nearest 5 minutes (down for start, up for end) for readability.
+/// all of that client's contracts in a single sheet (see
+/// `generate_combined_client_timesheet`). Every sheet, single-contract or combined,
+/// has a Contract column identifying each row. `{date}` is either the first or last
+/// day of the resolved period, per each contract's own `filename_date` setting
+/// ("start"/"end"; "end" — the last day — is the default; for a multi-contract
+/// client, "start" is only used if every one of its contracts agrees). For "week"
+/// periods, the range is computed from the relevant client's own
+/// `week_start`/`week_end`; "month" periods use the same calendar month for
+/// everyone. A client/contract with no entries in its resolved period is skipped
+/// rather than producing an empty file. Rate and Amount columns are only included
+/// when `include_rate_amount` is set, with Start/End times rounded to the nearest 5
+/// minutes (down for start, up for end) for readability.
 pub fn generate_timesheets(
     conn: &Connection,
     period: &str,
@@ -395,11 +384,9 @@ fn generate_single_contract_timesheet(
     }])
 }
 
-/// Combines every one of a client's active contracts into a single timesheet. A
-/// Contract column identifying each row's contract is added only when more than one
-/// contract actually has entries in the period (see `write_timesheet_workbook`) — a
-/// client with just one (active, or only-one-with-entries) contract gets a plain
-/// sheet with no Contract column, same shape as a directly contract-scoped file.
+/// Combines every one of a client's active contracts into a single timesheet, with a
+/// Contract column identifying each row's contract (present regardless of how many
+/// contracts end up with entries — see `write_timesheet_workbook`).
 /// Every contract under one client shares that client's `week_start`/`week_end`, so
 /// the resolved "week" period is identical for all of them — computed once, not per
 /// contract. Skips (does not write) any contract with no entries in the period;
@@ -560,7 +547,7 @@ mod tests {
     }
 
     #[test]
-    fn contract_scoped_timesheet_has_no_contract_column() {
+    fn contract_scoped_timesheet_still_has_a_contract_column() {
         use crate::domain::contracts::{create_client, create_contract};
         use crate::domain::time_entries::create_manual_entry;
         use calamine::{open_workbook_auto, Reader};
@@ -602,8 +589,13 @@ mod tests {
         let mut workbook = open_workbook_auto(&files[0].path).expect("open generated workbook");
         let sheet_name = workbook.sheet_names()[0].clone();
         let range = workbook.worksheet_range(&sheet_name).expect("read sheet");
-        let header: Vec<String> = range.rows().next().expect("header row").iter().map(cell_str).collect();
-        assert!(!header.contains(&"Contract".to_string()), "single-contract sheet should not have a Contract column");
+        let mut rows = range.rows();
+        let header: Vec<String> = rows.next().expect("header row").iter().map(cell_str).collect();
+        let contract_col = header.iter().position(|h| h == "Contract");
+        assert!(contract_col.is_some(), "every timesheet, single-contract or not, should have a Contract column: {header:?}");
+
+        let data_row = rows.next().expect("one data row");
+        assert_eq!(cell_str(&data_row[contract_col.unwrap()]), "Only Contract");
 
         let _ = fs::remove_file(&db_path);
         let _ = fs::remove_dir_all(&out_dir);
