@@ -3,6 +3,8 @@
   import { api, type TimeEntry } from './api'
   import {
     store,
+    entriesFilter,
+    type EntriesFilterPeriod,
     contractLabel,
     clientIdForContract,
     activeContracts,
@@ -22,10 +24,6 @@
   let busy = $state(false)
   let showAmounts = $state(false)
 
-  type FilterPeriod = 'last2weeks' | 'month' | '3months' | 'all'
-  let filterPeriod = $state<FilterPeriod>('last2weeks')
-  let filterContractId = $state<number | ''>('')
-  let filterTrackingCodeId = $state<number | ''>('')
   let localEntries = $state<TimeEntry[]>([])
   let loading = $state(false)
 
@@ -34,10 +32,16 @@
   let bulkBusy = $state(false)
   let bulkMessage = $state('')
 
-  function periodRange(period: FilterPeriod): { from?: string; to?: string } {
+  const PERIOD_DAYS: Record<Exclude<EntriesFilterPeriod, 'all'>, number> = {
+    lastweek: 7,
+    last2weeks: 14,
+    month: 30,
+    '3months': 90,
+  }
+
+  function periodRange(period: EntriesFilterPeriod): { from?: string; to?: string } {
     if (period === 'all') return {}
-    const days = period === 'last2weeks' ? 14 : period === 'month' ? 30 : 90
-    const from = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()
+    const from = new Date(Date.now() - PERIOD_DAYS[period] * 24 * 60 * 60 * 1000).toISOString()
     return { from }
   }
 
@@ -45,8 +49,8 @@
     loading = true
     try {
       localEntries = await api.listEntries({
-        ...periodRange(filterPeriod),
-        contractId: filterContractId ? Number(filterContractId) : undefined,
+        ...periodRange(entriesFilter.period),
+        contractId: entriesFilter.contractId ? Number(entriesFilter.contractId) : undefined,
       })
       selectedIds = new Set()
     } finally {
@@ -55,8 +59,8 @@
   }
 
   $effect(() => {
-    filterPeriod
-    filterContractId
+    entriesFilter.period
+    entriesFilter.contractId
     loadEntries()
   })
 
@@ -71,13 +75,15 @@
   )
 
   $effect(() => {
-    if (filterTrackingCodeId && !filterCategoryOptions.some(([id]) => id === filterTrackingCodeId)) {
-      filterTrackingCodeId = ''
+    if (entriesFilter.trackingCodeId && !filterCategoryOptions.some(([id]) => id === entriesFilter.trackingCodeId)) {
+      entriesFilter.trackingCodeId = ''
     }
   })
 
   let displayedEntries = $derived(
-    filterTrackingCodeId ? localEntries.filter((e) => e.trackingCodeId === Number(filterTrackingCodeId)) : localEntries,
+    entriesFilter.trackingCodeId
+      ? localEntries.filter((e) => e.trackingCodeId === Number(entriesFilter.trackingCodeId))
+      : localEntries,
   )
 
   let totalDurationSecs = $derived(displayedEntries.reduce((sum, e) => sum + (e.durationSecs ?? 0), 0))
@@ -259,19 +265,20 @@
 
   <div class="row">
     <label for="filter-period">Show</label>
-    <select id="filter-period" bind:value={filterPeriod}>
+    <select id="filter-period" bind:value={entriesFilter.period}>
+      <option value="lastweek">Last week</option>
       <option value="last2weeks">Last 2 weeks</option>
       <option value="month">Last month</option>
       <option value="3months">Last 3 months</option>
       <option value="all">All</option>
     </select>
-    <select bind:value={filterContractId} aria-label="Filter by contract">
+    <select bind:value={entriesFilter.contractId} aria-label="Filter by contract">
       <option value="">All contracts</option>
       {#each activeContracts() as contract (contract.id)}
         <option value={contract.id}>{contractLabel(contract.id)}</option>
       {/each}
     </select>
-    <select bind:value={filterTrackingCodeId} aria-label="Filter by category">
+    <select bind:value={entriesFilter.trackingCodeId} aria-label="Filter by category">
       <option value="">All categories</option>
       {#each filterCategoryOptions as [id, code] (id)}
         <option value={id}>{code}</option>

@@ -121,7 +121,12 @@ Key invariants enforced by design, not just convention:
   loaded clients/contracts/entries/etc., plus `refresh*()` loaders and derived helpers
   (`activeClients()`, `contractLabel()`, ...). `navGuard.isDirty` is the shared flag
   any detail page sets so `App.svelte`'s `navigate()` can prompt before discarding
-  changes.
+  changes. `entriesFilter` is the Entries page's period/contract/category filter
+  state, lifted out to this shared store (rather than being local `$state` inside
+  `EntriesPanel.svelte`) specifically so it survives that component being torn down
+  and recreated on navigation — the general pattern for "this UI state should outlive
+  the component" in this app's router, where every page swap fully unmounts the
+  previous view.
 - `lib/theme.ts` — applies the user's chosen color theme as CSS custom properties on
   the document root (System clears overrides and lets `app.css`'s
   `prefers-color-scheme` media query decide; Light/Dark are fixed presets; Custom uses
