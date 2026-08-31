@@ -1,9 +1,8 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
   import { open } from '@tauri-apps/plugin-dialog'
   import { api } from './api'
   import { store, navGuard, refreshUserProfile } from './store.svelte'
-  import { isDirty, formatBytes } from './dateUtils'
+  import { isDirty } from './dateUtils'
 
   let { onBack }: { onBack: () => void } = $props()
 
@@ -15,12 +14,6 @@
   let outputType = $state<'csv' | 'xlsx'>('xlsx')
   let busy = $state(false)
   let loadedFor = $state<string | null>(null)
-
-  let dbSize = $state<number | null>(null)
-
-  onMount(async () => {
-    dbSize = await api.getDatabaseSize()
-  })
 
   $effect(() => {
     const key = JSON.stringify(store.userProfile)
@@ -129,11 +122,6 @@
       <option value="csv">CSV</option>
     </select>
   </div>
-  <div class="field">
-    <span class="field-spacer" aria-hidden="true"></span>
-    <span class="muted">Database size: {dbSize === null ? 'loading…' : formatBytes(dbSize)}</span>
-  </div>
-
   <button class:unchanged={!dirty} onclick={save} disabled={busy || !dirty}>Save</button>
 </section>
 
@@ -148,8 +136,7 @@
     gap: 0.5rem;
     margin-bottom: 0.6rem;
   }
-  .field label,
-  .field-spacer {
+  .field label {
     width: 7rem;
     flex-shrink: 0;
   }
@@ -161,9 +148,5 @@
     background: #e5e5e5;
     color: #888;
     border-color: #d5d5d5;
-  }
-  .muted {
-    color: #666;
-    font-size: 0.85rem;
   }
 </style>
