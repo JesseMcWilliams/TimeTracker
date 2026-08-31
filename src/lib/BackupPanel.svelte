@@ -71,6 +71,7 @@
     restoreResult = null
     try {
       restoreResult = await api.restoreFromBackups(filePaths)
+      await refreshAll()
     } catch (e) {
       restoreError = String(e)
     } finally {
