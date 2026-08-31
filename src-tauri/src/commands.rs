@@ -4,6 +4,7 @@ use tauri::{Manager, State};
 use crate::domain::backup::{self, BackupFile, PurgeAllResult, RestoreResult};
 use crate::domain::contracts::{self, Client, Contract};
 use crate::domain::import;
+use crate::domain::import_templates::{self, ImportTemplate};
 use crate::domain::purge::{self, PurgeResult};
 use crate::domain::reports::{self, Report};
 use crate::domain::tags::{self, Tag};
@@ -388,9 +389,72 @@ pub fn import_time_entries(
     state: State<AppState>,
     contract_id: i64,
     file_paths: Vec<String>,
+    template_id: i64,
 ) -> CmdResult<import::ImportResult> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
-    import::import_time_entries(&conn, contract_id, &file_paths)
+    import::import_time_entries(&conn, contract_id, &file_paths, template_id)
+}
+
+#[tauri::command]
+pub fn list_import_templates(state: State<AppState>) -> CmdResult<Vec<ImportTemplate>> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    import_templates::list_import_templates(&conn)
+}
+
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub fn create_import_template(
+    state: State<AppState>,
+    name: String,
+    notes: Option<String>,
+    is_default: bool,
+    date_column: String,
+    start_column: String,
+    end_column: String,
+    category_column: Option<String>,
+    notes_column: Option<String>,
+) -> CmdResult<i64> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    import_templates::create_import_template(
+        &conn,
+        &name,
+        notes.as_deref(),
+        is_default,
+        &date_column,
+        &start_column,
+        &end_column,
+        category_column.as_deref(),
+        notes_column.as_deref(),
+    )
+}
+
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub fn update_import_template(
+    state: State<AppState>,
+    id: i64,
+    name: String,
+    notes: Option<String>,
+    is_default: bool,
+    date_column: String,
+    start_column: String,
+    end_column: String,
+    category_column: Option<String>,
+    notes_column: Option<String>,
+) -> CmdResult<()> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    import_templates::update_import_template(
+        &conn,
+        id,
+        &name,
+        notes.as_deref(),
+        is_default,
+        &date_column,
+        &start_column,
+        &end_column,
+        category_column.as_deref(),
+        notes_column.as_deref(),
+    )
 }
 
 #[tauri::command]

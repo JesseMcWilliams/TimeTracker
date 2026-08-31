@@ -67,8 +67,16 @@ mobile clients, remote import sources (e.g. OneNote/Graph).
   rather than local to the Entries page component.
 - FR-18: Bulk-select entries on the Entries page to bulk-delete or bulk-set category.
 - FR-19: Bulk import time entries from CSV or XLSX (including multi-tab workbooks),
-  targeted at one contract, with flexible date parsing and automatic creation of any
-  category name encountered that doesn't already exist for that client.
+  targeted at one contract, with flexible date parsing (24-hour or 12-hour with AM/PM)
+  and automatic creation of any category name encountered that doesn't already exist
+  for that client.
+- FR-19a: Import Templates define which column names to look for (Date, Start Time,
+  End Time required; Category and Notes optional) and are named/reusable, so a file
+  using different headers doesn't need to be edited before importing. Templates have a
+  name and notes field and one can be flagged as the default (auto-selected on the
+  Import page); flagging a new default clears the flag from any other template. The
+  Import page has a template dropdown plus Add… and Edit… buttons that open the
+  template's own add/edit page.
 
 ### 3.5 Reports & exports
 - FR-20: A Reports page shows total hours (and, optionally, amounts) for a selected
@@ -110,7 +118,9 @@ mobile clients, remote import sources (e.g. OneNote/Graph).
   Contract Rates, Categories, Time Entries) to the output folder.
 - FR-27: "Restore Data" reads those CSVs back in, adding only rows that don't already
   exist by id — never overwriting or duplicating existing rows, so it is safe to run
-  more than once.
+  more than once. The in-memory Clients/Contracts/Categories/Entries lists refresh
+  immediately after a successful restore, so newly-restored data shows up without
+  requiring an app restart.
 - FR-28: Trash (soft-deleted entries; archived contracts/clients/categories) can be
   permanently purged. Every purge always writes a CSV backup of exactly what's being
   removed first, always asks for confirmation, and only purges past a "cannot purge —

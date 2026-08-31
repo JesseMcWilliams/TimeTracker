@@ -5,6 +5,7 @@ use chrono::{Local, LocalResult, NaiveDate, NaiveDateTime, NaiveTime, TimeZone};
 use rusqlite::{params, Connection};
 use serde::Serialize;
 
+use super::import_templates::get_import_template;
 use super::time_entries::create_manual_entry;
 use super::tracking_codes::{create_tracking_code, list_tracking_codes, TrackingCode};
 use super::DomainResult;
@@ -129,13 +130,45 @@ fn parse_date(s: &str) -> Result<NaiveDate, String> {
 
 /// Excel time-of-day cells can come through as a full "YYYY-MM-DD HH:MM:SS" string
 /// (with a placeholder date, typically the 1899/1900 epoch) — the trailing time part is
-/// used in that case.
+/// used in that case. Accepts both 24-hour ("14:30") and 12-hour with AM/PM
+/// ("2:30 PM", "2:30PM", "2:30:00 pm") — whichever the source spreadsheet uses; the
+/// importer doesn't need to be told which in advance.
 fn parse_time(s: &str) -> Result<NaiveTime, String> {
     let full = s.trim();
-    let s = full.split_once(' ').map(|(_, time)| time).unwrap_or(full);
-    NaiveTime::parse_from_str(s, "%H:%M")
-        .or_else(|_| NaiveTime::parse_from_str(s, "%H:%M:%S"))
-        .map_err(|e| format!("invalid time '{full}': {e}"))
+    // Only strip a "date " prefix when it actually looks like one (contains '-', as
+    // in Excel's placeholder-date format) — a plain "2:30 PM" has a space too, but
+    // splitting on it unconditionally would throw away the "2:30" and leave just "PM".
+    let s = match full.split_once(' ') {
+        Some((prefix, time)) if prefix.contains('-') => time,
+        _ => full,
+    };
+    if let Ok(t) = NaiveTime::parse_from_str(s, "%H:%M") {
+        return Ok(t);
+    }
+    if let Ok(t) = NaiveTime::parse_from_str(s, "%H:%M:%S") {
+        return Ok(t);
+    }
+    // 12-hour AM/PM formats. chrono's %p expects "AM"/"PM" — uppercase first so
+    // "am"/"pm"/"Am" etc. from real-world spreadsheets still match. Also accept no
+    // space before the meridiem ("2:30PM") by inserting one if it's missing.
+    let upper = s.to_uppercase();
+    let spaced = if upper.ends_with("AM") || upper.ends_with("PM") {
+        let (time_part, meridiem) = upper.split_at(upper.len() - 2);
+        if time_part.ends_with(' ') {
+            upper.clone()
+        } else {
+            format!("{time_part} {meridiem}")
+        }
+    } else {
+        upper.clone()
+    };
+    if let Ok(t) = NaiveTime::parse_from_str(&spaced, "%I:%M %p") {
+        return Ok(t);
+    }
+    if let Ok(t) = NaiveTime::parse_from_str(&spaced, "%I:%M:%S %p") {
+        return Ok(t);
+    }
+    Err(format!("invalid time '{full}'"))
 }
 
 fn local_naive_to_utc_rfc3339(naive: NaiveDateTime) -> Result<String, String> {
@@ -165,15 +198,23 @@ fn parse_row_times(date_str: &str, start_str: &str, end_str: &str) -> Result<(St
     Ok((started_at, ended_at))
 }
 
-/// Imports time entries from one or more CSV/XLSX files against a single contract. An
-/// XLSX workbook with multiple tabs has every tab imported (each tab is treated as its
-/// own block of rows, with its own header row). Expected columns (case-insensitive,
-/// extra columns like a computed "Hours" are ignored since duration is derived from
-/// Start/End directly): Date, Start Time, End Time, Category (optional — a category not
-/// already on the client is created automatically), Notes/Activity (optional). Rows with
-/// a date but blank Start/End are skipped silently (e.g. a placeholder zero-hour day),
-/// rather than reported as errors.
-pub fn import_time_entries(conn: &Connection, contract_id: i64, file_paths: &[String]) -> DomainResult<ImportResult> {
+/// Imports time entries from one or more CSV/XLSX files against a single contract,
+/// using `template_id` to know which column names to look for (see
+/// `import_templates`). An XLSX workbook with multiple tabs has every tab imported
+/// (each tab is treated as its own block of rows, with its own header row). Column
+/// matching is case-insensitive; extra columns (like a computed "Hours") are ignored
+/// since duration is derived from Start/End directly. The template's category/notes
+/// columns are optional — leave one blank in the template to skip looking for it
+/// entirely. Rows with a date but blank Start/End are skipped silently (e.g. a
+/// placeholder zero-hour day), rather than reported as errors. Times accept both
+/// 24-hour and 12-hour-with-AM/PM formats.
+pub fn import_time_entries(
+    conn: &Connection,
+    contract_id: i64,
+    file_paths: &[String],
+    template_id: i64,
+) -> DomainResult<ImportResult> {
+    let template = get_import_template(conn, template_id)?;
     let client_id = client_id_for_contract(conn, contract_id)?;
     let mut categories = list_tracking_codes(conn, client_id, false)?;
 
@@ -213,17 +254,18 @@ pub fn import_time_entries(conn: &Connection, contract_id: i64, file_paths: &[St
             }
 
             let headers = &rows[0];
-            let date_col = find_col(headers, "date");
-            let start_col = find_col(headers, "start time").or_else(|| find_col(headers, "start"));
-            let end_col = find_col(headers, "end time").or_else(|| find_col(headers, "end"));
-            let category_col = find_col(headers, "category").or_else(|| find_col(headers, "code"));
-            let notes_col = find_col(headers, "notes").or_else(|| find_col(headers, "activity"));
+            let date_col = find_col(headers, &template.date_column);
+            let start_col = find_col(headers, &template.start_column);
+            let end_col = find_col(headers, &template.end_column);
+            let category_col = template.category_column.as_deref().and_then(|name| find_col(headers, name));
+            let notes_col = template.notes_column.as_deref().and_then(|name| find_col(headers, name));
 
             let (date_col, start_col, end_col) = match (date_col, start_col, end_col) {
                 (Some(d), Some(s), Some(e)) => (d, s, e),
                 _ => {
                     errors.push(format!(
-                        "{label}: missing required column(s) — need Date, Start Time, End Time"
+                        "{label}: missing required column(s) — template '{}' expects '{}', '{}', '{}'",
+                        template.name, template.date_column, template.start_column, template.end_column
                     ));
                     continue;
                 }
@@ -307,6 +349,18 @@ mod tests {
         std::env::temp_dir().join(format!("timetracker_test_{}_{name}", std::process::id()))
     }
 
+    /// Both starter templates seeded by migration 0012 are present in every fresh
+    /// test database — looked up by name rather than assumed id, in case seed order
+    /// ever changes.
+    fn template_id_named(conn: &Connection, name: &str) -> i64 {
+        super::super::import_templates::list_import_templates(conn)
+            .expect("list import templates")
+            .into_iter()
+            .find(|t| t.name == name)
+            .unwrap_or_else(|| panic!("seeded import template '{name}' not found"))
+            .id
+    }
+
     #[test]
     fn parses_dates_and_times_with_spurious_time_or_date_suffix() {
         // Excel date-only cells surface as "YYYY-MM-DD HH:MM:SS" with a midnight time
@@ -322,6 +376,17 @@ mod tests {
     }
 
     #[test]
+    fn parses_12_hour_times_with_am_pm() {
+        assert_eq!(parse_time("2:30 PM").unwrap(), NaiveTime::from_hms_opt(14, 30, 0).unwrap());
+        assert_eq!(parse_time("2:30PM").unwrap(), NaiveTime::from_hms_opt(14, 30, 0).unwrap());
+        assert_eq!(parse_time("2:30 pm").unwrap(), NaiveTime::from_hms_opt(14, 30, 0).unwrap());
+        assert_eq!(parse_time("9:00 AM").unwrap(), NaiveTime::from_hms_opt(9, 0, 0).unwrap());
+        assert_eq!(parse_time("12:00 AM").unwrap(), NaiveTime::from_hms_opt(0, 0, 0).unwrap());
+        assert_eq!(parse_time("12:00 PM").unwrap(), NaiveTime::from_hms_opt(12, 0, 0).unwrap());
+        assert_eq!(parse_time("2:30:15 PM").unwrap(), NaiveTime::from_hms_opt(14, 30, 15).unwrap());
+    }
+
+    #[test]
     fn imports_csv_and_xlsx_including_overnight_rollover() {
         let db_path = temp_path("import.sqlite");
         let _ = fs::remove_file(&db_path);
@@ -329,6 +394,7 @@ mod tests {
 
         let client_id = create_client(&conn, "Test Client", None).expect("create client");
         let contract_id = create_contract(&conn, client_id, "Test Contract", "USD", 50.0).expect("create contract");
+        let template_id = template_id_named(&conn, "Default");
 
         let csv_path = temp_path("import.csv");
         fs::write(
@@ -338,7 +404,8 @@ mod tests {
         .expect("write csv");
 
         let csv_result =
-            import_time_entries(&conn, contract_id, &[csv_path.to_string_lossy().to_string()]).expect("import csv");
+            import_time_entries(&conn, contract_id, &[csv_path.to_string_lossy().to_string()], template_id)
+                .expect("import csv");
         assert_eq!(csv_result.imported, 1, "errors: {:?}", csv_result.errors);
         assert_eq!(csv_result.skipped, 0);
 
@@ -356,7 +423,8 @@ mod tests {
         workbook.save(&xlsx_path).expect("save xlsx");
 
         let xlsx_result =
-            import_time_entries(&conn, contract_id, &[xlsx_path.to_string_lossy().to_string()]).expect("import xlsx");
+            import_time_entries(&conn, contract_id, &[xlsx_path.to_string_lossy().to_string()], template_id)
+                .expect("import xlsx");
         assert_eq!(xlsx_result.imported, 1, "errors: {:?}", xlsx_result.errors);
 
         let entries = list_entries(&conn, &EntryFilter::default()).expect("list entries");
@@ -387,6 +455,7 @@ mod tests {
 
         let client_id = create_client(&conn, "Tab Client", None).expect("create client");
         let contract_id = create_contract(&conn, client_id, "Tab Contract", "USD", 40.0).expect("create contract");
+        let template_id = template_id_named(&conn, "Activity Sheet");
 
         let xlsx_path = temp_path("import_tabs.xlsx");
         let mut workbook = Workbook::new();
@@ -434,7 +503,8 @@ mod tests {
         workbook.save(&xlsx_path).expect("save xlsx");
 
         let result =
-            import_time_entries(&conn, contract_id, &[xlsx_path.to_string_lossy().to_string()]).expect("import xlsx");
+            import_time_entries(&conn, contract_id, &[xlsx_path.to_string_lossy().to_string()], template_id)
+                .expect("import xlsx");
         assert_eq!(result.imported, 3, "errors: {:?}", result.errors);
         assert_eq!(result.skipped, 0, "errors: {:?}", result.errors);
 
@@ -468,6 +538,7 @@ mod tests {
             create_contract(&conn, client_id, "Categorized Contract", "USD", 50.0).expect("create contract");
         super::super::tracking_codes::create_tracking_code(&conn, client_id, "BILLABLE", None)
             .expect("create category");
+        let template_id = template_id_named(&conn, "Default");
 
         let csv_path = temp_path("import_cat.csv");
         fs::write(
@@ -481,7 +552,8 @@ mod tests {
         .expect("write csv");
 
         let result =
-            import_time_entries(&conn, contract_id, &[csv_path.to_string_lossy().to_string()]).expect("import csv");
+            import_time_entries(&conn, contract_id, &[csv_path.to_string_lossy().to_string()], template_id)
+                .expect("import csv");
         assert_eq!(result.imported, 4, "errors: {:?}", result.errors);
         assert_eq!(result.skipped, 0, "errors: {:?}", result.errors);
 

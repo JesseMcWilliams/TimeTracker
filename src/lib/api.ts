@@ -202,6 +202,18 @@ export interface ImportResult {
   errors: string[]
 }
 
+export interface ImportTemplate {
+  id: number
+  name: string
+  notes: string | null
+  isDefault: boolean
+  dateColumn: string
+  startColumn: string
+  endColumn: string
+  categoryColumn: string | null
+  notesColumn: string | null
+}
+
 export interface BackupFile {
   dataType: string
   path: string
@@ -372,8 +384,52 @@ export const api = {
     }),
   getDefaultOutputFolder: () => invoke<string>('get_default_output_folder'),
 
-  importTimeEntries: (contractId: number, filePaths: string[]) =>
-    invoke<ImportResult>('import_time_entries', { contractId, filePaths }),
+  importTimeEntries: (contractId: number, filePaths: string[], templateId: number) =>
+    invoke<ImportResult>('import_time_entries', { contractId, filePaths, templateId }),
+
+  listImportTemplates: () => invoke<ImportTemplate[]>('list_import_templates'),
+  createImportTemplate: (
+    name: string,
+    isDefault: boolean,
+    dateColumn: string,
+    startColumn: string,
+    endColumn: string,
+    notes?: string,
+    categoryColumn?: string,
+    notesColumn?: string,
+  ) =>
+    invoke<number>('create_import_template', {
+      name,
+      notes: notes ?? null,
+      isDefault,
+      dateColumn,
+      startColumn,
+      endColumn,
+      categoryColumn: categoryColumn ?? null,
+      notesColumn: notesColumn ?? null,
+    }),
+  updateImportTemplate: (
+    id: number,
+    name: string,
+    isDefault: boolean,
+    dateColumn: string,
+    startColumn: string,
+    endColumn: string,
+    notes?: string,
+    categoryColumn?: string,
+    notesColumn?: string,
+  ) =>
+    invoke<void>('update_import_template', {
+      id,
+      name,
+      notes: notes ?? null,
+      isDefault,
+      dateColumn,
+      startColumn,
+      endColumn,
+      categoryColumn: categoryColumn ?? null,
+      notesColumn: notesColumn ?? null,
+    }),
 
   backupAllData: () => invoke<BackupFile[]>('backup_all_data'),
   restoreFromBackups: (filePaths: string[]) => invoke<RestoreResult>('restore_from_backups', { filePaths }),

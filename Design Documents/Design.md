@@ -71,6 +71,13 @@ time_entries(id, contract_id, started_at, ended_at, duration_secs, rate_snapshot
 tags / time_entry_tags
   -- present in the schema; not currently exposed in the UI beyond the domain layer.
 
+import_templates(id, name, notes, is_default, date_column, start_column, end_column,
+                  category_column, notes_column, created_at)
+  -- named, reusable column-name mappings for bulk import; category_column/
+  -- notes_column are nullable (blank = don't look for that column at all).
+  -- is_default is enforced single-true by application logic (clear-other-defaults
+  -- on save), not a DB constraint.
+
 user_profile(id=1, first_name, last_name, full_name, email, output_folder,
              output_type, window_width, window_height, window_x, window_y,
              default_start_page, launch_position, theme, custom_bg, custom_text,
@@ -104,7 +111,8 @@ Key invariants enforced by design, not just convention:
 | `domain/reports.rs` | Aggregate Week/Month report grouped by client → contract. |
 | `domain/timesheets.rs` | Per-contract `.xlsx` generation, honoring each client's own week boundaries, optional scoping to one client/contract. |
 | `domain/period.rs` | Pure date-range math (week/month resolution for arbitrary start/end weekdays). |
-| `domain/import.rs` | CSV/XLSX bulk import: multi-tab, flexible date/time parsing, auto-creates unknown categories. |
+| `domain/import.rs` | CSV/XLSX bulk import: multi-tab, flexible date/time parsing (24h and 12h AM/PM), auto-creates unknown categories, resolves column names via a selected import template. |
+| `domain/import_templates.rs` | Import Template CRUD; enforces at most one default template by clearing the flag on every other row when a save sets it. |
 | `domain/backup.rs` | Table-driven CSV backup/restore (additive-only restore, matched by id). |
 | `domain/purge.rs` | Per-row dependency-checked permanent deletion, always backup-first; `purge_all_data`. |
 | `domain/user_profile.rs` | Single-row profile get/save. |
@@ -156,7 +164,18 @@ Key invariants enforced by design, not just convention:
   via Admin → Backup & Restore. Split out of `UserPanel.svelte` (a "your data"
   concern, not "who you are") and has no `user_profile` fields of its own to save, so
   — unlike User/Appearance — it doesn't need the spread-and-override save pattern
-  below.
+  below. Both Restore Data and Purge All call `refreshAll()` on success so the global
+  store (and therefore every page reading from it, e.g. Clients/Contracts) reflects
+  the change immediately — `EntriesPanel` happened to mask this before it was added to
+  Restore, since it independently re-fetches its own data on every mount.
+- `ImportPanel.svelte` — CSV/XLSX bulk import into one contract; a template `<select>`
+  (auto-selecting the flagged default) plus Add…/Edit… buttons drives which column
+  names `import.rs` looks for, with a summary line showing the selected template's
+  configured columns.
+- `ImportTemplateDetail.svelte` — add/edit page for one Import Template (name, notes,
+  default flag, and the five column-name fields), following the standard
+  dirty-tracking/`navGuard` detail-page pattern; reached from `ImportPanel`'s Add…/
+  Edit… buttons.
 - `AppearancePanel.svelte` — window size/position, default start page, and Colors.
   Reached via Admin → Appearance. Split out of what used to be `UserPanel.svelte`
   because "who you are" and "how the app looks/opens" are different enough concerns
