@@ -200,6 +200,7 @@ export interface ImportResult {
   imported: number
   skipped: number
   errors: string[]
+  warnings: string[]
 }
 
 export interface ImportTemplate {
@@ -207,11 +208,31 @@ export interface ImportTemplate {
   name: string
   notes: string | null
   isDefault: boolean
-  dateColumn: string
-  startColumn: string
-  endColumn: string
-  categoryColumn: string | null
-  notesColumn: string | null
+  dateColumns: string
+  startColumns: string
+  endColumns: string
+  categoryColumns: string | null
+  notesColumns: string | null
+}
+
+export interface ImportPreviewSample {
+  date: string
+  start: string
+  end: string
+  category: string
+  notes: string
+}
+
+export interface ImportPreviewSheet {
+  label: string
+  error: string | null
+  warnings: string[]
+  matchedDateColumn: string | null
+  matchedStartColumn: string | null
+  matchedEndColumn: string | null
+  matchedCategoryColumn: string | null
+  matchedNotesColumn: string | null
+  sampleRows: ImportPreviewSample[]
 }
 
 export interface BackupFile {
@@ -386,50 +407,53 @@ export const api = {
 
   importTimeEntries: (contractId: number, filePaths: string[], templateId: number) =>
     invoke<ImportResult>('import_time_entries', { contractId, filePaths, templateId }),
+  previewImport: (filePaths: string[], templateId: number) =>
+    invoke<ImportPreviewSheet[]>('preview_import', { filePaths, templateId }),
 
   listImportTemplates: () => invoke<ImportTemplate[]>('list_import_templates'),
   createImportTemplate: (
     name: string,
     isDefault: boolean,
-    dateColumn: string,
-    startColumn: string,
-    endColumn: string,
+    dateColumns: string,
+    startColumns: string,
+    endColumns: string,
     notes?: string,
-    categoryColumn?: string,
-    notesColumn?: string,
+    categoryColumns?: string,
+    notesColumns?: string,
   ) =>
     invoke<number>('create_import_template', {
       name,
       notes: notes ?? null,
       isDefault,
-      dateColumn,
-      startColumn,
-      endColumn,
-      categoryColumn: categoryColumn ?? null,
-      notesColumn: notesColumn ?? null,
+      dateColumns,
+      startColumns,
+      endColumns,
+      categoryColumns: categoryColumns ?? null,
+      notesColumns: notesColumns ?? null,
     }),
   updateImportTemplate: (
     id: number,
     name: string,
     isDefault: boolean,
-    dateColumn: string,
-    startColumn: string,
-    endColumn: string,
+    dateColumns: string,
+    startColumns: string,
+    endColumns: string,
     notes?: string,
-    categoryColumn?: string,
-    notesColumn?: string,
+    categoryColumns?: string,
+    notesColumns?: string,
   ) =>
     invoke<void>('update_import_template', {
       id,
       name,
       notes: notes ?? null,
       isDefault,
-      dateColumn,
-      startColumn,
-      endColumn,
-      categoryColumn: categoryColumn ?? null,
-      notesColumn: notesColumn ?? null,
+      dateColumns,
+      startColumns,
+      endColumns,
+      categoryColumns: categoryColumns ?? null,
+      notesColumns: notesColumns ?? null,
     }),
+  deleteImportTemplate: (id: number) => invoke<void>('delete_import_template', { id }),
 
   backupAllData: () => invoke<BackupFile[]>('backup_all_data'),
   restoreFromBackups: (filePaths: string[]) => invoke<RestoreResult>('restore_from_backups', { filePaths }),

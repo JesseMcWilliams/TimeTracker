@@ -72,11 +72,25 @@ mobile clients, remote import sources (e.g. OneNote/Graph).
   for that client.
 - FR-19a: Import Templates define which column names to look for (Date, Start Time,
   End Time required; Category and Notes optional) and are named/reusable, so a file
-  using different headers doesn't need to be edited before importing. Templates have a
-  name and notes field and one can be flagged as the default (auto-selected on the
-  Import page); flagging a new default clears the flag from any other template. The
-  Import page has a template dropdown plus Add… and Edit… buttons that open the
-  template's own add/edit page.
+  using different headers doesn't need to be edited before importing. Each field
+  accepts a comma-separated list of acceptable header names (e.g. "Start, Start Time")
+  — the first one found in a given file wins — so one template can cover more than one
+  real-world header naming convention. Templates have a name and notes field and one
+  can be flagged as the default (auto-selected on the Import page); flagging a new
+  default clears the flag from any other template. The Import page has a template
+  dropdown plus Add… and Edit… buttons that open the template's own add/edit page.
+- FR-19b: A template can be deleted from its edit page, guarded by a confirmation
+  prompt; deleting the last remaining template is blocked (Import always needs at
+  least one to select).
+- FR-19c: If a template names a Category or Notes column that isn't found in a given
+  file's header row, that file still imports (with a blank category/notes for its
+  rows) but the result reports a warning naming the missing column, shown separately
+  from hard errors.
+- FR-19d: A "Preview…" action on the Import page reads the selected file(s) against
+  the selected template without importing anything, reporting per file/tab which
+  actual header matched each field (or that a required column is missing) plus a few
+  sample data rows, so a wrong template/column mapping can be caught before committing
+  a potentially large import.
 
 ### 3.5 Reports & exports
 - FR-20: A Reports page shows total hours (and, optionally, amounts) for a selected
