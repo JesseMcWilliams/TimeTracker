@@ -1,6 +1,7 @@
 <script lang="ts">
   import { api, type Report, type ReportPeriod, type TimesheetFile, type TimeEntry } from './api'
   import { formatDuration, formatMoney, formatDateTime } from './dateUtils'
+  import { store } from './store.svelte'
 
   function today(): string {
     const d = new Date()
@@ -127,6 +128,7 @@
     <select bind:value={period}>
       <option value="week">Week</option>
       <option value="month">Month</option>
+      <option value="year">Year</option>
     </select>
     <input type="date" bind:value={referenceDate} />
     <label class="show-amounts">
@@ -235,15 +237,15 @@
   <h3>Create Timesheet</h3>
   {#if timesheetScopeLabel}
     <p class="muted">
-      Writes a .xlsx file for <strong>{timesheetScopeLabel}</strong> only, covering this period, to
-      your configured output folder (set on the User page). Columns: Date, Start Time, End Time,
-      HH:MM, Category, Notes.
+      Writes a .{store.userProfile.outputType} file for <strong>{timesheetScopeLabel}</strong> only, covering
+      this period, to your configured output folder (set on the User page). Columns: Date, Start
+      Time, End Time, HH:MM, Category, Notes.
     </p>
   {:else}
     <p class="muted">
-      Writes one .xlsx file per contract with entries in this period to your configured output
-      folder (set on the User page). Columns: Date, Start Time, End Time, HH:MM,
-      Category, Notes. Drill into a client or contract above to limit this to just that
+      Writes one .{store.userProfile.outputType} file per contract with entries in this period to
+      your configured output folder (set on the User page). Columns: Date, Start Time, End Time,
+      HH:MM, Category, Notes. Drill into a client or contract above to limit this to just that
       client/contract.
     </p>
   {/if}

@@ -151,7 +151,7 @@ export interface Report {
   clients: ClientBreakdown[]
 }
 
-export type ReportPeriod = 'week' | 'month'
+export type ReportPeriod = 'week' | 'month' | 'year'
 
 export interface TimesheetFile {
   path: string
@@ -160,7 +160,7 @@ export interface TimesheetFile {
   entryCount: number
 }
 
-export type EntrySource = 'manual' | 'timer' | 'obsidian_import'
+export type EntrySource = 'manual' | 'timer' | 'obsidian_import' | 'import'
 
 export interface TimeEntry {
   id: number

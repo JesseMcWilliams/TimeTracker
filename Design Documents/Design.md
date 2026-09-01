@@ -64,7 +64,7 @@ tracking_codes(id, client_id, code, description, archived_at)
   -- "categories" in the UI; always optional on a time entry.
 
 time_entries(id, contract_id, started_at, ended_at, duration_secs, rate_snapshot,
-             notes, source['manual'|'timer'|'obsidian_import'], external_ref,
+             notes, source['manual'|'timer'|'obsidian_import'|'import'], external_ref,
              tracking_code_id, deleted_at, created_at, updated_at)
   -- rate_snapshot is fixed at creation time and never re-derived from contract_rates.
 
@@ -110,9 +110,9 @@ Key invariants enforced by design, not just convention:
 | `domain/time_entries.rs` | Timer start/stop, manual entry CRUD, running-entry metadata edit, soft delete/restore, duration rounding, filtered listing. |
 | `domain/tracking_codes.rs` | Category CRUD, archive/restore, referential validation (optional-but-must-belong-to-client). |
 | `domain/tags.rs` | Free-form tag support on entries (schema-level; not yet surfaced in the UI beyond this module). |
-| `domain/reports.rs` | Aggregate Week/Month report grouped by client → contract. |
-| `domain/timesheets.rs` | Per-contract `.xlsx` generation, honoring each client's own week boundaries, optional scoping to one client/contract. |
-| `domain/period.rs` | Pure date-range math (week/month resolution for arbitrary start/end weekdays). |
+| `domain/reports.rs` | Aggregate Week/Month/Year report grouped by client → contract. |
+| `domain/timesheets.rs` | Per-contract timesheet generation in .xlsx or .csv (`TimesheetFormat`, chosen from the user profile's Output type setting), honoring each client's own week boundaries, optional scoping to one client/contract. |
+| `domain/period.rs` | Pure date-range math (week/month/year resolution for arbitrary start/end weekdays; `resolve_period` is the single "week"/"month"/"year" dispatcher both `reports.rs` and `timesheets.rs` call into). |
 | `domain/import.rs` | CSV/XLSX bulk import: multi-tab, flexible date/time parsing (24h and 12h AM/PM), auto-creates unknown categories, resolves each field against a template's comma-separated column aliases (`resolve_columns`, shared between actually importing and `preview_import`'s dry-run). An optional column named by the template but not found in a given file produces a warning rather than an error. |
 | `domain/import_templates.rs` | Import Template CRUD plus delete (blocked when it's the last remaining template); enforces at most one default template by clearing the flag on every other row when a save sets it; `split_aliases` turns a field's comma-separated value into the ordered list `import.rs` tries. |
 | `domain/backup.rs` | Table-driven CSV backup/restore (additive-only restore, matched by id). |
@@ -153,9 +153,11 @@ Key invariants enforced by design, not just convention:
   icon in place of start once a contract has a running timer.
 - `TrashPanel.svelte` — a two-level drill-down: a summary of counts per type, and a
   per-type list view where that type's Purge action lives.
-- `ReportsPanel.svelte` — Week/Month report with click-to-drill (all clients → one
+- `ReportsPanel.svelte` — Week/Month/Year report with click-to-drill (all clients → one
   client → one contract → that contract's entries) and the scoped "Create Timesheet"
-  action described in Requirements FR-21/22.
+  action described in Requirements FR-21/22. Its descriptive text names the actual
+  file extension that will be written (`store.userProfile.outputType`) rather than a
+  hardcoded ".xlsx", since generation now honors that setting.
 - `AdminPanel.svelte` — the single top-nav "Admin" entry; a menu of four buttons
   (User, Backup & Restore, Trash, Appearance), each navigating to its own sub-page.
   Grouping these under one nav entry keeps the top nav from growing an item per

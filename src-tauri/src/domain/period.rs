@@ -54,6 +54,12 @@ pub fn month_range(reference: NaiveDate) -> (NaiveDate, NaiveDate) {
     (start, next_month_start - Duration::days(1))
 }
 
+pub fn year_range(reference: NaiveDate) -> (NaiveDate, NaiveDate) {
+    let start = NaiveDate::from_ymd_opt(reference.year(), 1, 1).unwrap();
+    let end = NaiveDate::from_ymd_opt(reference.year(), 12, 31).unwrap();
+    (start, end)
+}
+
 /// Converts an inclusive date range into RFC3339 UTC bounds comparable against
 /// `started_at` timestamps (which are stored as UTC RFC3339 strings).
 pub fn to_rfc3339_bounds(start: NaiveDate, end: NaiveDate) -> (String, String) {
@@ -61,4 +67,24 @@ pub fn to_rfc3339_bounds(start: NaiveDate, end: NaiveDate) -> (String, String) {
         format!("{}T00:00:00Z", start.format("%Y-%m-%d")),
         format!("{}T23:59:59Z", end.format("%Y-%m-%d")),
     )
+}
+
+/// Resolves a period string ("week", "month", or "year") against `reference` into an
+/// inclusive date range, shared by both the aggregate Reports view and per-contract
+/// timesheet generation. `week_start`/`week_end` only matter for the "week" case — a
+/// caller with a fixed Mon-Sun week passes those weekdays directly, while a caller
+/// honoring per-client boundaries passes the client's own settings. Any period string
+/// other than "week"/"year" resolves to a calendar month, matching this codebase's
+/// existing behavior for unrecognized values.
+pub fn resolve_period(
+    period: &str,
+    reference: NaiveDate,
+    week_start: Weekday,
+    week_end: Weekday,
+) -> (NaiveDate, NaiveDate) {
+    match period {
+        "week" => week_range(reference, week_start, week_end),
+        "year" => year_range(reference),
+        _ => month_range(reference),
+    }
 }

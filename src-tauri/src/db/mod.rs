@@ -50,6 +50,10 @@ const MIGRATIONS: &[(&str, &str)] = &[
         "0013_import_template_column_aliases",
         include_str!("../../migrations/0013_import_template_column_aliases.sql"),
     ),
+    (
+        "0014_import_entry_source",
+        include_str!("../../migrations/0014_import_entry_source.sql"),
+    ),
 ];
 
 pub fn open(db_path: &Path) -> rusqlite::Result<Connection> {
