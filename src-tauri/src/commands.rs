@@ -368,6 +368,7 @@ pub fn generate_timesheets(
         include_rate_amount,
         client_id,
         contract_id,
+        &profile.output_type,
     )
 }
 

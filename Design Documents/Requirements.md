@@ -91,31 +91,39 @@ mobile clients, remote import sources (e.g. OneNote/Graph).
   actual header matched each field (or that a required column is missing) plus a few
   sample data rows, so a wrong template/column mapping can be caught before committing
   a potentially large import.
+- FR-19e: A time entry created by bulk import is recorded with source "import" (not
+  "manual"), so imported entries are distinguishable from hand-typed ones on the
+  Entries page's Source column.
 
 ### 3.5 Reports & exports
 - FR-20: A Reports page shows total hours (and, optionally, amounts) for a selected
-  Week or Month, broken down by client then contract, with click-to-drill-down from
-  "all clients" → one client → one contract → that contract's raw entries for the
+  Week, Month, or Year, broken down by client then contract, with click-to-drill-down
+  from "all clients" → one client → one contract → that contract's raw entries for the
   period.
-- FR-21: "Create Timesheet" writes one .xlsx per **client** (covering every one of
-  that client's contracts in a single sheet) with entries in the selected period, to
-  the user's configured output folder. Columns: Date, Start Time (24h), End Time
-  (24h), HH:MM, Category, Notes, with Rate/Amount as an opt-in extra pair of columns,
-  formatted as currency. Column widths are pre-sized so no manual resizing is needed.
+- FR-21: "Create Timesheet" writes one file per **client** (covering every one of
+  that client's contracts in a single sheet/file) with entries in the selected period,
+  to the user's configured output folder, in the file format named by the user's
+  Output type profile setting (.xlsx or .csv — .xlsx is written whenever that setting
+  is anything other than "csv"). Columns: Date, Start Time (24h), End Time (24h),
+  HH:MM, Category, Notes, with Rate/Amount as an opt-in extra pair of columns,
+  formatted as currency in the .xlsx case. Column widths are pre-sized (.xlsx only —
+  not applicable to .csv) so no manual resizing is needed.
 - FR-22: Scoping behavior on the Reports page: with no drill-down at all ("all
-  clients"), one combined workbook is produced per client that has any activity in
+  clients"), one combined file is produced per client that has any activity in
   the period — never one file per contract. Drilled into a specific **client**,
-  output is scoped to just that client's combined workbook. Drilled into a specific
-  **contract**, output is a single workbook for just that contract (named
-  `{date}_{client}_{contract}_{yourFullName}.xlsx`, contract name included). A
-  client-combined workbook (whether reached via "all clients" or by drilling into
-  that one client) is named `{date}_{client}_{yourFullName}.xlsx`, with rows
-  interleaved chronologically across contracts when it spans more than one. Every
-  exported workbook — single-contract or combined — includes a Contract column
-  identifying each row's contract.
+  output is scoped to just that client's combined file. Drilled into a specific
+  **contract**, output is a single file for just that contract (named
+  `{date}_{client}_{contract}_{yourFullName}.{ext}`, contract name included, `{ext}`
+  being `xlsx` or `csv` per the Output type setting). A client-combined file (whether
+  reached via "all clients" or by drilling into that one client) is named
+  `{date}_{client}_{yourFullName}.{ext}`, with rows interleaved chronologically across
+  contracts when it spans more than one. Every exported file — single-contract or
+  combined — includes a Contract column identifying each row's contract.
 - FR-23: Each contract's timesheet period is computed from its own client's
-  week-start/week-end (a report's aggregate week view always uses Mon–Sun regardless
-  of any one client's setting, since that view mixes multiple clients at once).
+  week-start/week-end for "week" periods (a report's aggregate week view always uses
+  Mon–Sun regardless of any one client's setting, since that view mixes multiple
+  clients at once); "month" and "year" periods use the same calendar month/year for
+  every client/contract.
 - FR-24: The `{date}` in a timesheet's filename is either the first or last day of
   that contract's resolved period, controlled by a per-contract "Timesheet filename
   date" setting (First day of period / Last day of period), defaulting to the last

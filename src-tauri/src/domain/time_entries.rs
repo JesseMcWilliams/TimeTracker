@@ -136,14 +136,29 @@ pub fn create_manual_entry(
     notes: Option<&str>,
     tracking_code_id: Option<i64>,
 ) -> DomainResult<i64> {
+    create_entry_with_source(conn, contract_id, started_at, ended_at, notes, tracking_code_id, "manual")
+}
+
+/// Same as `create_manual_entry`, but lets the caller record a different `source` than
+/// 'manual' — used by bulk import so imported rows are distinguishable from entries
+/// typed in by hand (e.g. on the Entries page's Source column).
+pub(crate) fn create_entry_with_source(
+    conn: &Connection,
+    contract_id: i64,
+    started_at: &str,
+    ended_at: &str,
+    notes: Option<&str>,
+    tracking_code_id: Option<i64>,
+    source: &str,
+) -> DomainResult<i64> {
     validate_tracking_code(conn, contract_id, tracking_code_id)?;
     let rate = current_rate(conn, contract_id)?;
     let duration_secs = compute_duration_secs(conn, contract_id, started_at, ended_at)?;
 
     conn.execute(
         "INSERT INTO time_entries (contract_id, started_at, ended_at, duration_secs, rate_snapshot, notes, source, tracking_code_id)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'manual', ?7)",
-        params![contract_id, started_at, ended_at, duration_secs, rate, notes, tracking_code_id],
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        params![contract_id, started_at, ended_at, duration_secs, rate, notes, source, tracking_code_id],
     )
     .map_err(|e| e.to_string())?;
     Ok(conn.last_insert_rowid())

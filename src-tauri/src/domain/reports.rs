@@ -2,7 +2,7 @@ use chrono::{NaiveDate, Weekday};
 use rusqlite::{params, Connection};
 use serde::Serialize;
 
-use super::period::{month_range, to_rfc3339_bounds, week_range};
+use super::period::{resolve_period, to_rfc3339_bounds};
 use super::DomainResult;
 
 #[derive(Debug, Serialize)]
@@ -37,14 +37,11 @@ pub struct Report {
 /// Aggregate reports use a fixed Monday-Sunday week regardless of any individual
 /// client's own week settings, since one report mixes entries across many clients and
 /// needs one consistent window. Per-client week boundaries are honored instead in
-/// per-contract timesheet generation (see `timesheets::generate_timesheets`).
+/// per-contract timesheet generation (see `timesheets::generate_timesheets`). Supports
+/// "week", "month", and "year" periods (see `period::resolve_period`).
 pub fn generate_report(conn: &Connection, period: &str, reference_date: &str) -> DomainResult<Report> {
     let reference: NaiveDate = reference_date.parse().map_err(|e| format!("invalid date: {e}"))?;
-    let (start, end) = if period == "week" {
-        week_range(reference, Weekday::Mon, Weekday::Sun)
-    } else {
-        month_range(reference)
-    };
+    let (start, end) = resolve_period(period, reference, Weekday::Mon, Weekday::Sun);
     let (from, to) = to_rfc3339_bounds(start, end);
 
     let mut stmt = conn

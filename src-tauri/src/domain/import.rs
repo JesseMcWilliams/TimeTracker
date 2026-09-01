@@ -6,7 +6,7 @@ use rusqlite::{params, Connection};
 use serde::Serialize;
 
 use super::import_templates::{get_import_template, split_aliases, ImportTemplate};
-use super::time_entries::create_manual_entry;
+use super::time_entries::create_entry_with_source;
 use super::tracking_codes::{create_tracking_code, list_tracking_codes, TrackingCode};
 use super::DomainResult;
 
@@ -394,7 +394,7 @@ pub fn import_time_entries(
                         None => None,
                     };
 
-                    create_manual_entry(conn, contract_id, &started_at, &ended_at, notes, tracking_code_id)?;
+                    create_entry_with_source(conn, contract_id, &started_at, &ended_at, notes, tracking_code_id, "import")?;
                     Ok(())
                 })();
 
@@ -663,6 +663,7 @@ mod tests {
             .find(|e| e.notes.as_deref() == Some("Worked on CSV import"))
             .expect("csv entry present");
         assert_eq!(csv_entry.duration_secs, Some(2 * 3600 + 1800));
+        assert_eq!(csv_entry.source, "import", "imported entries should be tagged as such, not 'manual'");
 
         let _ = fs::remove_file(&db_path);
         let _ = fs::remove_file(&csv_path);
