@@ -17,19 +17,24 @@ releasable, do new work on branches, and only tag a release from `main`.
   - `fix/<short-kebab-case-description>` — bug fixes
   - e.g. `feature/quick-timer-stop-icon`, `fix/entry-detail-dirty-check`
 - When the branch is done and verified (tests pass, svelte-check clean, manually
-  exercised per `Testing.md` §3 if it touches something in that checklist), merge it
-  into `main`:
+  exercised per `Testing.md` §3 if it touches something in that checklist), push it
+  and open a pull request into `main` instead of merging locally:
+  ```
+  git push -u origin feature/your-branch
+  gh pr create --title "..." --body "..."
+  ```
+  Merge the PR (via `gh pr merge --squash` or `--merge`, or on GitHub's web UI), then
+  clean up both branches:
   ```
   git checkout main
-  git merge --no-ff feature/your-branch
+  git pull origin main
   git branch -d feature/your-branch
-  git push origin main
+  git push origin --delete feature/your-branch
   ```
-  `--no-ff` keeps a merge commit marking where the feature landed, which is useful
-  later for `git log` / `git bisect` even without a PR review process.
-- No pull request process is prescribed here — for a solo project, a branch is just a
-  workspace to keep in-progress work out of `main` until it's actually done, not a
-  review gate. Use PRs anyway if you want the diff view; it's not required.
+- This is a solo project, so a PR here isn't a review gate — it exists for the diff
+  view and a durable record of what shipped together. (Earlier work in this project's
+  history merged branches directly into `main` locally, without a PR; the convention
+  going forward is PR-based, per the above.)
 
 ## Versioning
 
