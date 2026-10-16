@@ -26,12 +26,22 @@ pub struct ClientBreakdown {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ContractRef {
+    pub contract_id: i64,
+    pub contract_name: String,
+    pub client_id: i64,
+    pub client_name: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Report {
     pub from: String,
     pub to: String,
     pub total_secs: i64,
     pub total_amount: f64,
     pub clients: Vec<ClientBreakdown>,
+    pub contracts_without_time: Vec<ContractRef>,
 }
 
 /// Aggregate reports use a fixed Monday-Sunday week regardless of any individual
@@ -105,11 +115,92 @@ pub fn generate_report(conn: &Connection, period: &str, reference_date: &str) ->
         }
     }
 
+    let contracts_without_time = contracts_without_time(conn, &from, &to)?;
+
     Ok(Report {
         from: start.format("%Y-%m-%d").to_string(),
         to: end.format("%Y-%m-%d").to_string(),
         total_secs,
         total_amount,
         clients,
+        contracts_without_time,
     })
+}
+
+/// Active contracts with zero time entries in [from, to] — the inner-join query above
+/// only ever returns contracts that already have at least one entry, so this is a
+/// separate left-join-from-contracts query to surface the rest.
+fn contracts_without_time(conn: &Connection, from: &str, to: &str) -> DomainResult<Vec<ContractRef>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT c.id, c.name, cl.id, cl.name
+             FROM contracts c
+             JOIN clients cl ON cl.id = c.client_id
+             WHERE c.archived_at IS NULL
+               AND c.id NOT IN (
+                 SELECT DISTINCT te.contract_id FROM time_entries te
+                 WHERE te.deleted_at IS NULL AND te.started_at >= ?1 AND te.started_at <= ?2
+               )
+             ORDER BY cl.name, c.name",
+        )
+        .map_err(|e| e.to_string())?;
+
+    let rows = stmt
+        .query_map(params![from, to], |row| {
+            Ok(ContractRef {
+                contract_id: row.get(0)?,
+                contract_name: row.get(1)?,
+                client_id: row.get(2)?,
+                client_name: row.get(3)?,
+            })
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    Ok(rows)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::contracts::{archive_contract, create_client, create_contract};
+    use crate::domain::time_entries::create_manual_entry;
+    use std::fs;
+
+    fn test_db(name: &str) -> Connection {
+        let pid = std::process::id();
+        let db_path = std::env::temp_dir().join(format!("timetracker_test_reports_{pid}_{name}.sqlite"));
+        let _ = fs::remove_file(&db_path);
+        crate::db::open(&db_path).expect("open db")
+    }
+
+    #[test]
+    fn contracts_with_no_entries_in_period_are_listed_separately() {
+        let conn = test_db("no_entries");
+        let client_id = create_client(&conn, "Quiet Client", None).expect("create client");
+        let worked_contract = create_contract(&conn, client_id, "Worked On", "USD", 50.0).expect("create contract");
+        let idle_contract = create_contract(&conn, client_id, "No Time Logged", "USD", 50.0).expect("create contract");
+
+        create_manual_entry(&conn, worked_contract, "2026-08-24T09:00:00Z", "2026-08-24T10:00:00Z", None, None)
+            .expect("create entry");
+
+        let report = generate_report(&conn, "week", "2026-08-24").expect("generate report");
+
+        assert_eq!(report.clients.len(), 1, "only the worked contract's client appears in the normal breakdown");
+        assert_eq!(report.contracts_without_time.len(), 1);
+        assert_eq!(report.contracts_without_time[0].contract_id, idle_contract);
+    }
+
+    #[test]
+    fn archived_contracts_are_excluded_from_contracts_without_time() {
+        let conn = test_db("archived");
+        let client_id = create_client(&conn, "Client", None).expect("create client");
+        let archived_contract = create_contract(&conn, client_id, "Retired", "USD", 50.0).expect("create contract");
+        archive_contract(&conn, archived_contract).expect("archive contract");
+
+        let report = generate_report(&conn, "week", "2026-08-24").expect("generate report");
+
+        assert!(report.contracts_without_time.is_empty(), "archived contracts should not be flagged as idle");
+    }
 }

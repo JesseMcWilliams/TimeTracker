@@ -232,6 +232,15 @@
         </tbody>
       </table>
     {/if}
+
+    {#if drillClientId === null && report.contractsWithoutTime.length > 0}
+      <h3>No time logged this period</h3>
+      <ul class="no-time-list">
+        {#each report.contractsWithoutTime as noTimeContract (noTimeContract.contractId)}
+          <li>{noTimeContract.clientName} — {noTimeContract.contractName}</li>
+        {/each}
+      </ul>
+    {/if}
   {/if}
 
   <h3>Create Timesheet</h3>
@@ -331,6 +340,11 @@
   .results {
     margin-top: 0.75rem;
     padding-left: 1.2rem;
+  }
+  .no-time-list {
+    margin-top: 0.5rem;
+    padding-left: 1.2rem;
+    color: #666;
   }
   .breadcrumb {
     color: #666;
