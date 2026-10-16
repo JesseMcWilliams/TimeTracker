@@ -1,7 +1,9 @@
 <script lang="ts">
-  import { api, type Report, type ReportPeriod, type TimesheetFile, type TimeEntry } from './api'
+  import { api, type Report, type ReportPeriod, type TimesheetFile, type TimeEntry, type NoTimeEmailPreview } from './api'
   import { formatDuration, formatMoney, formatDateTime } from './dateUtils'
   import { store } from './store.svelte'
+
+  let { onGoToEmailTemplate }: { onGoToEmailTemplate: (templateId: number | null) => void } = $props()
 
   function today(): string {
     const d = new Date()
@@ -119,6 +121,61 @@
         ? drillClientName
         : null,
   )
+
+  let emailTemplateId = $state<number | ''>('')
+  let emailPreview = $state<NoTimeEmailPreview | null>(null)
+  let emailBusy = $state(false)
+  let emailError = $state('')
+  let emailCopied = $state(false)
+
+  // Keep emailTemplateId pointing at a real template whenever possible, without
+  // overriding a selection the user already made.
+  $effect(() => {
+    if (store.emailTemplates.length === 0) {
+      emailTemplateId = ''
+      return
+    }
+    if (emailTemplateId !== '' && store.emailTemplates.some((t) => t.id === Number(emailTemplateId))) return
+    emailTemplateId = store.emailTemplates[0].id
+  })
+
+  let selectedEmailTemplate = $derived(
+    emailTemplateId ? store.emailTemplates.find((t) => t.id === Number(emailTemplateId)) : undefined,
+  )
+
+  let mailtoHref = $derived.by(() => {
+    if (!emailPreview) return ''
+    const to = emailPreview.to ?? ''
+    const params = new URLSearchParams({ subject: emailPreview.subject, body: emailPreview.body })
+    return `mailto:${encodeURIComponent(to)}?${params.toString()}`
+  })
+
+  function onEmailTemplateChange() {
+    emailPreview = null
+    emailError = ''
+    emailCopied = false
+  }
+
+  async function generateEmail() {
+    if (!emailTemplateId) return
+    emailBusy = true
+    emailError = ''
+    emailPreview = null
+    emailCopied = false
+    try {
+      emailPreview = await api.generateNoTimeEmail(Number(emailTemplateId), today())
+    } catch (e) {
+      emailError = String(e)
+    } finally {
+      emailBusy = false
+    }
+  }
+
+  async function copyEmailToClipboard() {
+    if (!emailPreview) return
+    await navigator.clipboard.writeText(`Subject: ${emailPreview.subject}\n\n${emailPreview.body}`)
+    emailCopied = true
+  }
 </script>
 
 <section class="panel">
@@ -279,6 +336,47 @@
       </ul>
     {/if}
   {/if}
+
+  <h3>No-Time Email</h3>
+  <p class="muted">
+    Generates the subject and body of an email listing contracts with no time logged in a
+    template's date range. This app never sends email itself — copy the text or open it in your
+    default mail client.
+  </p>
+  <div class="row">
+    <label for="email-template-select">Template</label>
+    <select id="email-template-select" bind:value={emailTemplateId} onchange={onEmailTemplateChange}>
+      {#each store.emailTemplates as t (t.id)}
+        <option value={t.id}>{t.name}</option>
+      {/each}
+    </select>
+    <button type="button" onclick={() => onGoToEmailTemplate(null)}>Add…</button>
+    <button type="button" onclick={() => onGoToEmailTemplate(Number(emailTemplateId))} disabled={!emailTemplateId}
+      >Edit…</button
+    >
+    <button type="button" onclick={generateEmail} disabled={!emailTemplateId || emailBusy}>Generate email</button>
+  </div>
+  {#if selectedEmailTemplate?.description}
+    <p class="muted">{selectedEmailTemplate.description}</p>
+  {/if}
+
+  {#if emailError}
+    <div class="error">{emailError}</div>
+  {:else if emailPreview}
+    <div class="email-preview">
+      <p><strong>Subject:</strong> {emailPreview.subject}</p>
+      <pre class="email-body">{emailPreview.body}</pre>
+      <div class="row">
+        <button type="button" onclick={copyEmailToClipboard}>{emailCopied ? 'Copied!' : 'Copy to clipboard'}</button>
+        {#if emailPreview.to}
+          <a class="button-link" href={mailtoHref}>Open in email client</a>
+        {/if}
+      </div>
+      {#if !emailPreview.to}
+        <p class="muted">No recipient set on this template — add one to enable "Open in email client".</p>
+      {/if}
+    </div>
+  {/if}
 </section>
 
 <style>
@@ -359,5 +457,26 @@
     text-decoration: underline;
     cursor: pointer;
     font: inherit;
+  }
+  .email-preview {
+    margin-top: 0.75rem;
+    border: 1px solid var(--border, #ddd);
+    border-radius: 4px;
+    padding: 0.75rem;
+  }
+  .email-body {
+    white-space: pre-wrap;
+    font: inherit;
+    background: none;
+    margin: 0.5rem 0;
+  }
+  .button-link {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.4rem 0.8rem;
+    border: 1px solid var(--border, #ccc);
+    border-radius: 4px;
+    text-decoration: none;
+    color: inherit;
   }
 </style>

@@ -1,5 +1,6 @@
 pub mod backup;
 pub mod contracts;
+pub mod email_templates;
 pub mod import;
 pub mod import_templates;
 pub mod period;

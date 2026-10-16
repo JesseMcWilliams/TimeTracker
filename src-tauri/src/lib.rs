@@ -138,6 +138,11 @@ pub fn run() {
             commands::purge_all_data,
             commands::get_window_geometry,
             commands::get_database_size,
+            commands::list_email_templates,
+            commands::create_email_template,
+            commands::update_email_template,
+            commands::delete_email_template,
+            commands::generate_no_time_email,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
