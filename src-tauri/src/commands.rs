@@ -100,6 +100,17 @@ pub fn update_contract_rate(state: State<AppState>, contract_id: i64, new_hourly
 }
 
 #[tauri::command]
+pub fn add_contract_hours(
+    state: State<AppState>,
+    contract_id: i64,
+    hours_delta: f64,
+    note: Option<String>,
+) -> CmdResult<()> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    contracts::add_contract_hours(&conn, contract_id, hours_delta, note.as_deref())
+}
+
+#[tauri::command]
 #[allow(clippy::too_many_arguments)]
 pub fn update_contract_details(
     state: State<AppState>,

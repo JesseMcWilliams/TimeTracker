@@ -34,6 +34,12 @@ pub struct Contract {
     pub filename_date: String,
     pub archived_at: Option<String>,
     pub current_rate: Option<f64>,
+    /// Sum of all `contract_hour_adjustments` rows for this contract. Zero means no
+    /// hours budget has been set (not that the budget is literally zero).
+    pub total_hours_budgeted: f64,
+    /// Sum of `duration_secs` (in hours) across this contract's non-deleted entries,
+    /// regardless of date — hours budgets are a lifetime total, not period-scoped.
+    pub hours_logged: f64,
 }
 
 const CLIENT_COLUMNS: &str = "id, name, notes, prime, sub, external_id, week_start, week_end, \
@@ -194,6 +200,45 @@ pub fn minimum_increment_for_contract(conn: &Connection, contract_id: i64) -> Do
     .map_err(|e| e.to_string())
 }
 
+/// Adds (or, with a negative `hours_delta`, removes) hours from a contract's lifetime
+/// hours budget. The running total is the sum of every adjustment ever recorded; there
+/// is no separate "set total to X" operation, mirroring how rate changes are tracked.
+pub fn add_contract_hours(
+    conn: &Connection,
+    contract_id: i64,
+    hours_delta: f64,
+    note: Option<&str>,
+) -> DomainResult<()> {
+    conn.execute(
+        "INSERT INTO contract_hour_adjustments (contract_id, hours_delta, note) VALUES (?1, ?2, ?3)",
+        params![contract_id, hours_delta, note],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+pub fn total_hours_budgeted(conn: &Connection, contract_id: i64) -> DomainResult<f64> {
+    conn.query_row(
+        "SELECT COALESCE(SUM(hours_delta), 0) FROM contract_hour_adjustments WHERE contract_id = ?1",
+        params![contract_id],
+        |row| row.get(0),
+    )
+    .map_err(|e| e.to_string())
+}
+
+/// Lifetime hours logged against a contract, across all entries regardless of date —
+/// hours budgets aren't period-scoped, so "remaining" compares against everything ever
+/// logged, not just a report window.
+pub fn hours_logged(conn: &Connection, contract_id: i64) -> DomainResult<f64> {
+    conn.query_row(
+        "SELECT COALESCE(SUM(duration_secs), 0) / 3600.0 FROM time_entries
+         WHERE contract_id = ?1 AND deleted_at IS NULL",
+        params![contract_id],
+        |row| row.get(0),
+    )
+    .map_err(|e| e.to_string())
+}
+
 pub fn current_rate(conn: &Connection, contract_id: i64) -> DomainResult<f64> {
     conn.query_row(
         "SELECT hourly_rate FROM contract_rates
@@ -249,6 +294,8 @@ pub fn list_contracts(conn: &Connection, include_archived: bool) -> DomainResult
                 filename_date,
                 archived_at,
                 current_rate: current_rate(conn, id).ok(),
+                total_hours_budgeted: total_hours_budgeted(conn, id)?,
+                hours_logged: hours_logged(conn, id)?,
             })
         })
         .collect()
@@ -270,4 +317,54 @@ pub fn restore_contract(conn: &Connection, contract_id: i64) -> DomainResult<()>
     )
     .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::time_entries::create_manual_entry;
+    use std::fs;
+
+    fn test_db(name: &str) -> Connection {
+        let pid = std::process::id();
+        let db_path = std::env::temp_dir().join(format!("timetracker_test_contracts_{pid}_{name}.sqlite"));
+        let _ = fs::remove_file(&db_path);
+        crate::db::open(&db_path).expect("open db")
+    }
+
+    #[test]
+    fn a_contract_with_no_adjustments_has_a_zero_hours_budget() {
+        let conn = test_db("no_adjustments");
+        let client_id = create_client(&conn, "Client", None).expect("create client");
+        let contract_id = create_contract(&conn, client_id, "Contract", "USD", 50.0).expect("create contract");
+
+        assert_eq!(total_hours_budgeted(&conn, contract_id).expect("query"), 0.0);
+    }
+
+    #[test]
+    fn hour_adjustments_add_and_subtract_from_the_running_total() {
+        let conn = test_db("adjustments");
+        let client_id = create_client(&conn, "Client", None).expect("create client");
+        let contract_id = create_contract(&conn, client_id, "Contract", "USD", 50.0).expect("create contract");
+
+        add_contract_hours(&conn, contract_id, 40.0, Some("initial budget")).expect("add hours");
+        add_contract_hours(&conn, contract_id, 10.0, None).expect("add more hours");
+        add_contract_hours(&conn, contract_id, -5.0, Some("correction")).expect("remove hours");
+
+        assert_eq!(total_hours_budgeted(&conn, contract_id).expect("query"), 45.0);
+    }
+
+    #[test]
+    fn hours_logged_sums_lifetime_entries_regardless_of_date() {
+        let conn = test_db("hours_logged");
+        let client_id = create_client(&conn, "Client", None).expect("create client");
+        let contract_id = create_contract(&conn, client_id, "Contract", "USD", 50.0).expect("create contract");
+
+        create_manual_entry(&conn, contract_id, "2026-01-01T09:00:00Z", "2026-01-01T11:00:00Z", None, None)
+            .expect("create old entry");
+        create_manual_entry(&conn, contract_id, "2026-08-24T09:00:00Z", "2026-08-24T10:30:00Z", None, None)
+            .expect("create recent entry");
+
+        assert_eq!(hours_logged(&conn, contract_id).expect("query"), 3.5);
+    }
 }

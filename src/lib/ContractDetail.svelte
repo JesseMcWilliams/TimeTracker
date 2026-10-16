@@ -2,7 +2,7 @@
   import { confirm } from '@tauri-apps/plugin-dialog'
   import { api, type FilenameDate } from './api'
   import { store, navGuard, refreshContracts } from './store.svelte'
-  import { isDirty } from './dateUtils'
+  import { isDirty, formatDuration } from './dateUtils'
 
   let { contractId, onBack }: { contractId: number; onBack: () => void } = $props()
 
@@ -18,7 +18,11 @@
   let initializedFor = $state<number | null>(null)
 
   let newRate = $state('')
+  let hoursAdjustment = $state('')
+  let hoursAdjustmentNote = $state('')
   let busy = $state(false)
+
+  let remainingHours = $derived(contract ? contract.totalHoursBudgeted - contract.hoursLogged : 0)
 
   $effect(() => {
     if (contract && initializedFor !== contract.id) {
@@ -84,6 +88,19 @@
     }
   }
 
+  async function applyHoursAdjustment() {
+    if (!contract || hoursAdjustment === '' || Number(hoursAdjustment) === 0) return
+    busy = true
+    try {
+      await api.addContractHours(contract.id, Number(hoursAdjustment), hoursAdjustmentNote.trim() || undefined)
+      hoursAdjustment = ''
+      hoursAdjustmentNote = ''
+      await refreshContracts()
+    } finally {
+      busy = false
+    }
+  }
+
   async function archive() {
     if (!contract) return
     if (!(await confirm('Archive this contract?'))) return
@@ -110,6 +127,14 @@
       <dd>{client?.name ?? `#${contract.clientId}`}</dd>
       <dt>Current rate</dt>
       <dd>{contract.currentRate ?? '—'} {contract.currency} / hr</dd>
+      {#if contract.totalHoursBudgeted > 0}
+        <dt>Hours budget</dt>
+        <dd>
+          {formatDuration(contract.totalHoursBudgeted * 3600)} total &mdash;
+          {formatDuration(contract.hoursLogged * 3600)} logged &mdash;
+          {formatDuration(remainingHours * 3600)} remaining
+        </dd>
+      {/if}
     </dl>
 
     <div class="field">
@@ -155,6 +180,25 @@
     </div>
     <div class="row">
       <button onclick={saveRate} disabled={busy || newRate === ''}>Update rate</button>
+    </div>
+
+    <h3>Hours</h3>
+    <div class="field">
+      <label for="hours-adjustment">Adjust by</label>
+      <input id="hours-adjustment" type="number" step="0.25" bind:value={hoursAdjustment} style="width: 7rem" />
+      hours (negative to remove)
+    </div>
+    <div class="field">
+      <label for="hours-adjustment-note">Note</label>
+      <input id="hours-adjustment-note" bind:value={hoursAdjustmentNote} placeholder="optional" style="flex: 1" />
+    </div>
+    <div class="row">
+      <button onclick={applyHoursAdjustment} disabled={busy || hoursAdjustment === '' || Number(hoursAdjustment) === 0}
+        >Apply adjustment</button
+      >
+    </div>
+
+    <div class="row">
       <button onclick={archive} disabled={busy} class="danger">Archive contract</button>
     </div>
   {/if}

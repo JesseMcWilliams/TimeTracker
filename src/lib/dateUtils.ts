@@ -16,9 +16,11 @@ export function formatDateTime(iso: string): string {
 
 export function formatDuration(secs: number | null): string {
   if (secs === null || secs === undefined) return '—'
-  const h = Math.floor(secs / 3600)
-  const m = Math.floor((secs % 3600) / 60)
-  return `${h}h ${m}m`
+  const sign = secs < 0 ? '-' : ''
+  const abs = Math.abs(secs)
+  const h = Math.floor(abs / 3600)
+  const m = Math.floor((abs % 3600) / 60)
+  return `${sign}${h}h ${m}m`
 }
 
 export function formatMoney(amount: number, currency: string): string {
