@@ -143,12 +143,20 @@ export interface ClientBreakdown {
   contracts: ContractBreakdown[]
 }
 
+export interface ContractRef {
+  contractId: number
+  contractName: string
+  clientId: number
+  clientName: string
+}
+
 export interface Report {
   from: string
   to: string
   totalSecs: number
   totalAmount: number
   clients: ClientBreakdown[]
+  contractsWithoutTime: ContractRef[]
 }
 
 export type ReportPeriod = 'week' | 'month' | 'year'
