@@ -32,19 +32,30 @@
   let bulkBusy = $state(false)
   let bulkMessage = $state('')
 
-  const PERIOD_DAYS: Record<Exclude<EntriesFilterPeriod, 'all' | 'today'>, number> = {
+  const PERIOD_DAYS: Record<Exclude<EntriesFilterPeriod, 'all' | 'today' | 'yesterday'>, number> = {
     lastweek: 7,
     last2weeks: 14,
     month: 30,
     '3months': 90,
   }
 
+  function startOfDay(date: Date): Date {
+    const start = new Date(date)
+    start.setHours(0, 0, 0, 0)
+    return start
+  }
+
   function periodRange(period: EntriesFilterPeriod): { from?: string; to?: string } {
     if (period === 'all') return {}
     if (period === 'today') {
-      const from = new Date()
-      from.setHours(0, 0, 0, 0)
-      return { from: from.toISOString() }
+      const from = startOfDay(new Date())
+      const to = new Date(from.getTime() + 24 * 60 * 60 * 1000 - 1)
+      return { from: from.toISOString(), to: to.toISOString() }
+    }
+    if (period === 'yesterday') {
+      const to = new Date(startOfDay(new Date()).getTime() - 1)
+      const from = startOfDay(to)
+      return { from: from.toISOString(), to: to.toISOString() }
     }
     const from = new Date(Date.now() - PERIOD_DAYS[period] * 24 * 60 * 60 * 1000).toISOString()
     return { from }
@@ -272,6 +283,7 @@
     <label for="filter-period">Show</label>
     <select id="filter-period" bind:value={entriesFilter.period}>
       <option value="today">Today</option>
+      <option value="yesterday">Yesterday</option>
       <option value="lastweek">Last week</option>
       <option value="last2weeks">Last 2 weeks</option>
       <option value="month">Last month</option>
