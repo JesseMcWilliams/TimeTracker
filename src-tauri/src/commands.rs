@@ -3,6 +3,7 @@ use tauri::{Manager, State};
 
 use crate::domain::backup::{self, BackupFile, PurgeAllResult, RestoreResult};
 use crate::domain::contracts::{self, Client, Contract};
+use crate::domain::email_templates::{self, EmailTemplate, NoTimeEmailPreview};
 use crate::domain::import;
 use crate::domain::import_templates::{self, ImportTemplate};
 use crate::domain::purge::{self, PurgeResult};
@@ -531,4 +532,73 @@ pub fn purge_all_data(state: State<AppState>) -> CmdResult<PurgeAllResult> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
     let output_folder = require_output_folder(&conn)?;
     purge::purge_all_data(&conn, &output_folder)
+}
+
+#[tauri::command]
+pub fn list_email_templates(state: State<AppState>) -> CmdResult<Vec<EmailTemplate>> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    email_templates::list_email_templates(&conn)
+}
+
+#[tauri::command]
+pub fn create_email_template(
+    state: State<AppState>,
+    name: String,
+    description: Option<String>,
+    notes: Option<String>,
+    email: Option<String>,
+    contract_id: Option<i64>,
+    date_range: String,
+) -> CmdResult<i64> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    email_templates::create_email_template(
+        &conn,
+        &name,
+        description.as_deref(),
+        notes.as_deref(),
+        email.as_deref(),
+        contract_id,
+        &date_range,
+    )
+}
+
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub fn update_email_template(
+    state: State<AppState>,
+    id: i64,
+    name: String,
+    description: Option<String>,
+    notes: Option<String>,
+    email: Option<String>,
+    contract_id: Option<i64>,
+    date_range: String,
+) -> CmdResult<()> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    email_templates::update_email_template(
+        &conn,
+        id,
+        &name,
+        description.as_deref(),
+        notes.as_deref(),
+        email.as_deref(),
+        contract_id,
+        &date_range,
+    )
+}
+
+#[tauri::command]
+pub fn delete_email_template(state: State<AppState>, id: i64) -> CmdResult<()> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    email_templates::delete_email_template(&conn, id)
+}
+
+#[tauri::command]
+pub fn generate_no_time_email(
+    state: State<AppState>,
+    template_id: i64,
+    reference_date: String,
+) -> CmdResult<NoTimeEmailPreview> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    email_templates::generate_no_time_email(&conn, template_id, &reference_date)
 }

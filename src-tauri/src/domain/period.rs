@@ -69,6 +69,41 @@ pub fn to_rfc3339_bounds(start: NaiveDate, end: NaiveDate) -> (String, String) {
     )
 }
 
+/// The calendar week (Mon-Sun) immediately before the one containing `reference`.
+pub fn previous_week_range(reference: NaiveDate) -> (NaiveDate, NaiveDate) {
+    let (current_start, _) = week_range(reference, Weekday::Mon, Weekday::Sun);
+    (current_start - Duration::days(7), current_start - Duration::days(1))
+}
+
+/// The two calendar weeks (Mon-Sun each) immediately before the one containing
+/// `reference`, as one combined span.
+pub fn previous_two_weeks_range(reference: NaiveDate) -> (NaiveDate, NaiveDate) {
+    let (current_start, _) = week_range(reference, Weekday::Mon, Weekday::Sun);
+    (current_start - Duration::days(14), current_start - Duration::days(1))
+}
+
+/// The full calendar month immediately before the one containing `reference`.
+pub fn previous_month_range(reference: NaiveDate) -> (NaiveDate, NaiveDate) {
+    let prev_month_ref = if reference.month() == 1 {
+        NaiveDate::from_ymd_opt(reference.year() - 1, 12, 1).unwrap()
+    } else {
+        NaiveDate::from_ymd_opt(reference.year(), reference.month() - 1, 1).unwrap()
+    };
+    month_range(prev_month_ref)
+}
+
+/// Resolves one of the email template date-range presets ("previous_week",
+/// "previous_2_weeks", "month", "previous_month") against `reference`.
+pub fn resolve_date_range_preset(preset: &str, reference: NaiveDate) -> Result<(NaiveDate, NaiveDate), String> {
+    match preset {
+        "previous_week" => Ok(previous_week_range(reference)),
+        "previous_2_weeks" => Ok(previous_two_weeks_range(reference)),
+        "month" => Ok(month_range(reference)),
+        "previous_month" => Ok(previous_month_range(reference)),
+        other => Err(format!("unknown date range preset: {other}")),
+    }
+}
+
 /// Resolves a period string ("week", "month", or "year") against `reference` into an
 /// inclusive date range, shared by both the aggregate Reports view and per-contract
 /// timesheet generation. `week_start`/`week_end` only matter for the "week" case — a

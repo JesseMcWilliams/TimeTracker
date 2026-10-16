@@ -19,6 +19,7 @@
   import QuickTimerPanel from './lib/QuickTimerPanel.svelte'
   import ImportPanel from './lib/ImportPanel.svelte'
   import ImportTemplateDetail from './lib/ImportTemplateDetail.svelte'
+  import EmailTemplateDetail from './lib/EmailTemplateDetail.svelte'
 
   type View =
     | { name: 'timer' }
@@ -37,6 +38,7 @@
     | { name: 'reports' }
     | { name: 'import' }
     | { name: 'import-template'; templateId: number | null }
+    | { name: 'email-template'; templateId: number | null }
 
   let view = $state<View>({ name: 'timer' })
 
@@ -132,13 +134,18 @@
   {:else if view.name === 'appearance'}
     <AppearancePanel onBack={() => navigate({ name: 'admin' })} />
   {:else if view.name === 'reports'}
-    <ReportsPanel />
+    <ReportsPanel onGoToEmailTemplate={(templateId) => navigate({ name: 'email-template', templateId })} />
   {:else if view.name === 'import'}
     <ImportPanel onGoToTemplate={(templateId) => navigate({ name: 'import-template', templateId })} />
   {:else if view.name === 'import-template'}
     <ImportTemplateDetail
       templateId={view.templateId}
       onBack={() => navigate({ name: 'import' })}
+    />
+  {:else if view.name === 'email-template'}
+    <EmailTemplateDetail
+      templateId={view.templateId}
+      onBack={() => navigate({ name: 'reports' })}
     />
   {/if}
 </main>

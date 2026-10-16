@@ -271,6 +271,35 @@ export interface PurgeAllResult {
   backups: BackupFile[]
 }
 
+export type EmailDateRange = 'previous_week' | 'previous_2_weeks' | 'month' | 'previous_month'
+
+export interface EmailTemplate {
+  id: number
+  name: string
+  description: string | null
+  notes: string | null
+  email: string | null
+  /** `null` means "check every active contract". */
+  contractId: number | null
+  dateRange: EmailDateRange
+}
+
+export interface IdleContract {
+  contractId: number
+  contractName: string
+  clientId: number
+  clientName: string
+}
+
+export interface NoTimeEmailPreview {
+  subject: string
+  body: string
+  to: string | null
+  from: string
+  toDate: string
+  contracts: IdleContract[]
+}
+
 export const api = {
   createClient: (name: string, notes?: string) =>
     invoke<number>('create_client', { name, notes: notes ?? null }),
@@ -477,4 +506,43 @@ export const api = {
   purgeArchivedCategories: (cutoff?: string) =>
     invoke<PurgeResult>('purge_archived_categories', { cutoff: cutoff ?? null }),
   purgeAllData: () => invoke<PurgeAllResult>('purge_all_data'),
+
+  listEmailTemplates: () => invoke<EmailTemplate[]>('list_email_templates'),
+  createEmailTemplate: (
+    name: string,
+    dateRange: EmailDateRange,
+    description?: string,
+    notes?: string,
+    email?: string,
+    contractId?: number,
+  ) =>
+    invoke<number>('create_email_template', {
+      name,
+      description: description ?? null,
+      notes: notes ?? null,
+      email: email ?? null,
+      contractId: contractId ?? null,
+      dateRange,
+    }),
+  updateEmailTemplate: (
+    id: number,
+    name: string,
+    dateRange: EmailDateRange,
+    description?: string,
+    notes?: string,
+    email?: string,
+    contractId?: number,
+  ) =>
+    invoke<void>('update_email_template', {
+      id,
+      name,
+      description: description ?? null,
+      notes: notes ?? null,
+      email: email ?? null,
+      contractId: contractId ?? null,
+      dateRange,
+    }),
+  deleteEmailTemplate: (id: number) => invoke<void>('delete_email_template', { id }),
+  generateNoTimeEmail: (templateId: number, referenceDate: string) =>
+    invoke<NoTimeEmailPreview>('generate_no_time_email', { templateId, referenceDate }),
 }
