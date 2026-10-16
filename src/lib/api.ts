@@ -39,6 +39,8 @@ export interface Contract {
   filenameDate: FilenameDate
   archivedAt: string | null
   currentRate: number | null
+  totalHoursBudgeted: number
+  hoursLogged: number
 }
 
 export type StartPage =
@@ -307,6 +309,8 @@ export const api = {
     invoke<Contract[]>('list_contracts', { includeArchived }),
   updateContractRate: (contractId: number, newHourlyRate: number) =>
     invoke<void>('update_contract_rate', { contractId, newHourlyRate }),
+  addContractHours: (contractId: number, hoursDelta: number, note?: string) =>
+    invoke<void>('add_contract_hours', { contractId, hoursDelta, note: note ?? null }),
   updateContractDetails: (
     contractId: number,
     name: string,
