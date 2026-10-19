@@ -10,6 +10,17 @@ export function toDatetimeLocalValue(iso: string): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
+/** Rounds a `<input type="datetime-local">` value to the nearest 5 minutes. The native
+ * `step` attribute doesn't restrict the picker's minute list in this app's WebView2
+ * runtime, so granularity is enforced here instead, on commit. */
+export function roundToNearest5Minutes(datetimeLocal: string): string {
+  if (!datetimeLocal) return datetimeLocal
+  const d = new Date(datetimeLocal)
+  d.setMinutes(Math.round(d.getMinutes() / 5) * 5, 0, 0)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
 export function formatDateTime(iso: string): string {
   return new Date(iso).toLocaleString()
 }
