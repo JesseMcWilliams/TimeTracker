@@ -4,11 +4,13 @@
     onGoToBackup,
     onGoToTrash,
     onGoToAppearance,
+    onGoToTemplates,
   }: {
     onGoToUser: () => void
     onGoToBackup: () => void
     onGoToTrash: () => void
     onGoToAppearance: () => void
+    onGoToTemplates: () => void
   } = $props()
 </script>
 
@@ -26,6 +28,12 @@
       <button class="menu-row" onclick={onGoToBackup}>
         <span class="title">Backup &amp; Restore</span>
         <span class="desc">Backup Data, Restore Data, Purge All</span>
+      </button>
+    </li>
+    <li>
+      <button class="menu-row" onclick={onGoToTemplates}>
+        <span class="title">Templates</span>
+        <span class="desc">Email and import templates</span>
       </button>
     </li>
     <li>

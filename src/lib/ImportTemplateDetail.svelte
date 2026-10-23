@@ -4,7 +4,11 @@
   import { store, navGuard, refreshImportTemplates } from './store.svelte'
   import { isDirty } from './dateUtils'
 
-  let { templateId, onBack }: { templateId: number | null; onBack: (savedId?: number) => void } = $props()
+  let {
+    templateId,
+    onBack,
+    backLabel = 'Back to Import',
+  }: { templateId: number | null; onBack: (savedId?: number) => void; backLabel?: string } = $props()
 
   let template = $derived(templateId === null ? undefined : store.importTemplates.find((t) => t.id === templateId))
 
@@ -147,7 +151,7 @@
 </script>
 
 <section class="panel">
-  <button onclick={() => onBack()}>&larr; Back to Import</button>
+  <button onclick={() => onBack()}>&larr; {backLabel}</button>
 
   <h2>{templateId === null ? 'Add Import Template' : 'Edit Import Template'}</h2>
 

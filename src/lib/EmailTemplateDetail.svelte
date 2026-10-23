@@ -4,7 +4,11 @@
   import { store, navGuard, refreshEmailTemplates, activeContracts, contractLabel } from './store.svelte'
   import { isDirty } from './dateUtils'
 
-  let { templateId, onBack }: { templateId: number | null; onBack: (savedId?: number) => void } = $props()
+  let {
+    templateId,
+    onBack,
+    backLabel = 'Back to Reports',
+  }: { templateId: number | null; onBack: (savedId?: number) => void; backLabel?: string } = $props()
 
   let template = $derived(templateId === null ? undefined : store.emailTemplates.find((t) => t.id === templateId))
 
@@ -158,7 +162,7 @@
 </script>
 
 <section class="panel">
-  <button onclick={() => onBack()}>&larr; Back to Reports</button>
+  <button onclick={() => onBack()}>&larr; {backLabel}</button>
 
   <h2>{templateId === null ? 'Add Email Template' : 'Edit Email Template'}</h2>
 

@@ -229,6 +229,11 @@ fn format_date(date: NaiveDate, date_format: &str) -> String {
 /// The placeholders a subject or body template may use. Matching is case-insensitive
 /// on the name inside the braces, so `{startdate}` and `{StartDate}` both work — the
 /// documented spelling is the CamelCase one shown in the editor's hint text.
+///
+/// No Rust caller reads this list — the editor's hint list lives in `api.ts` — but it
+/// belongs beside the expander that implements it, and a test keeps it honest by
+/// checking every name here actually substitutes.
+#[allow(dead_code)]
 pub const PLACEHOLDERS: &[&str] = &["StartDate", "EndDate", "DateRange", "Contracts", "ContractCount", "TemplateName"];
 
 /// Substitutes `{Placeholder}` tokens. Anything that is not a recognised placeholder is
@@ -518,6 +523,35 @@ mod tests {
         clear_default_email_template(&conn).expect("clear default");
 
         assert!(list_email_templates(&conn).expect("list").iter().all(|t| !t.is_default));
+    }
+
+    /// Guards against PLACEHOLDERS listing a name the expander does not actually
+    /// handle, which would advertise a placeholder that renders as literal text.
+    #[test]
+    fn every_documented_placeholder_is_actually_substituted() {
+        let conn = test_db("documented_placeholders");
+        let client_id = create_client(&conn, "Acme", None).expect("create client");
+        create_contract(&conn, client_id, "Support", "USD", 50.0).expect("create contract");
+
+        for placeholder in PLACEHOLDERS {
+            let subject = format!("[{{{placeholder}}}]");
+            let template_id = create_email_template(
+                &conn,
+                placeholder,
+                None,
+                None,
+                None,
+                None,
+                "previous_week",
+                Some(&subject),
+                None,
+                "iso",
+            )
+            .expect("create template");
+
+            let preview = generate_no_time_email(&conn, template_id, "2026-08-24", 0).expect("generate email");
+            assert_ne!(preview.subject, subject, "{placeholder} was left as literal text");
+        }
     }
 
     #[test]

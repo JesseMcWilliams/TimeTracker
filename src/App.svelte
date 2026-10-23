@@ -14,6 +14,7 @@
   import UserPanel from './lib/UserPanel.svelte'
   import BackupPanel from './lib/BackupPanel.svelte'
   import AdminPanel from './lib/AdminPanel.svelte'
+  import TemplatesPanel from './lib/TemplatesPanel.svelte'
   import AppearancePanel from './lib/AppearancePanel.svelte'
   import ReportsPanel from './lib/ReportsPanel.svelte'
   import QuickTimerPanel from './lib/QuickTimerPanel.svelte'
@@ -37,8 +38,9 @@
     | { name: 'appearance' }
     | { name: 'reports' }
     | { name: 'import' }
-    | { name: 'import-template'; templateId: number | null }
-    | { name: 'email-template'; templateId: number | null }
+    | { name: 'templates' }
+    | { name: 'import-template'; templateId: number | null; returnTo?: 'import' | 'templates' }
+    | { name: 'email-template'; templateId: number | null; returnTo?: 'reports' | 'templates' }
 
   let view = $state<View>({ name: 'timer' })
 
@@ -124,6 +126,7 @@
       onGoToBackup={() => navigate({ name: 'backup' })}
       onGoToTrash={() => navigate({ name: 'trash' })}
       onGoToAppearance={() => navigate({ name: 'appearance' })}
+      onGoToTemplates={() => navigate({ name: 'templates' })}
     />
   {:else if view.name === 'trash'}
     <TrashPanel onBack={() => navigate({ name: 'admin' })} />
@@ -137,15 +140,25 @@
     <ReportsPanel onGoToEmailTemplate={(templateId) => navigate({ name: 'email-template', templateId })} />
   {:else if view.name === 'import'}
     <ImportPanel onGoToTemplate={(templateId) => navigate({ name: 'import-template', templateId })} />
+  {:else if view.name === 'templates'}
+    <TemplatesPanel
+      onBack={() => navigate({ name: 'admin' })}
+      onGoToEmailTemplate={(templateId) => navigate({ name: 'email-template', templateId, returnTo: 'templates' })}
+      onGoToImportTemplate={(templateId) => navigate({ name: 'import-template', templateId, returnTo: 'templates' })}
+    />
   {:else if view.name === 'import-template'}
+    {@const returnTo = view.returnTo ?? 'import'}
     <ImportTemplateDetail
       templateId={view.templateId}
-      onBack={() => navigate({ name: 'import' })}
+      backLabel={returnTo === 'templates' ? 'Back to Templates' : 'Back to Import'}
+      onBack={() => navigate({ name: returnTo })}
     />
   {:else if view.name === 'email-template'}
+    {@const returnTo = view.returnTo ?? 'reports'}
     <EmailTemplateDetail
       templateId={view.templateId}
-      onBack={() => navigate({ name: 'reports' })}
+      backLabel={returnTo === 'templates' ? 'Back to Templates' : 'Back to Reports'}
+      onBack={() => navigate({ name: returnTo })}
     />
   {/if}
 </main>
