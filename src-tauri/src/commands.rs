@@ -556,6 +556,9 @@ pub fn create_email_template(
     email: Option<String>,
     contract_id: Option<i64>,
     date_range: String,
+    subject_template: Option<String>,
+    body_template: Option<String>,
+    date_format: String,
 ) -> CmdResult<i64> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
     email_templates::create_email_template(
@@ -566,6 +569,9 @@ pub fn create_email_template(
         email.as_deref(),
         contract_id,
         &date_range,
+        subject_template.as_deref(),
+        body_template.as_deref(),
+        &date_format,
     )
 }
 
@@ -580,6 +586,9 @@ pub fn update_email_template(
     email: Option<String>,
     contract_id: Option<i64>,
     date_range: String,
+    subject_template: Option<String>,
+    body_template: Option<String>,
+    date_format: String,
 ) -> CmdResult<()> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
     email_templates::update_email_template(
@@ -591,6 +600,9 @@ pub fn update_email_template(
         email.as_deref(),
         contract_id,
         &date_range,
+        subject_template.as_deref(),
+        body_template.as_deref(),
+        &date_format,
     )
 }
 
@@ -598,6 +610,16 @@ pub fn update_email_template(
 pub fn delete_email_template(state: State<AppState>, id: i64) -> CmdResult<()> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
     email_templates::delete_email_template(&conn, id)
+}
+
+/// Passing `None` clears the default outright, leaving no template preselected.
+#[tauri::command]
+pub fn set_default_email_template(state: State<AppState>, id: Option<i64>) -> CmdResult<()> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    match id {
+        Some(id) => email_templates::set_default_email_template(&conn, id),
+        None => email_templates::clear_default_email_template(&conn),
+    }
 }
 
 #[tauri::command]

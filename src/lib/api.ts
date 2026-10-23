@@ -274,6 +274,18 @@ export interface PurgeAllResult {
 
 export type EmailDateRange = 'previous_week' | 'previous_2_weeks' | 'month' | 'previous_month'
 
+export type EmailDateFormat = 'iso' | 'us' | 'long'
+
+/** Placeholder names a subject or body template may use, matched case-insensitively. */
+export const EMAIL_PLACEHOLDERS = [
+  'StartDate',
+  'EndDate',
+  'DateRange',
+  'Contracts',
+  'ContractCount',
+  'TemplateName',
+] as const
+
 export interface EmailTemplate {
   id: number
   name: string
@@ -283,6 +295,26 @@ export interface EmailTemplate {
   /** `null` means "check every active contract". */
   contractId: number | null
   dateRange: EmailDateRange
+  /** `null` falls back to the built-in wording. */
+  subjectTemplate: string | null
+  /** `null` falls back to the built-in wording. */
+  bodyTemplate: string | null
+  isDefault: boolean
+  dateFormat: EmailDateFormat
+}
+
+/** The editable fields of an email template. Grouped into one object rather than a long
+ * positional argument list, which this many optional fields had outgrown. */
+export interface EmailTemplateInput {
+  name: string
+  dateRange: EmailDateRange
+  dateFormat: EmailDateFormat
+  description?: string
+  notes?: string
+  email?: string
+  contractId?: number
+  subjectTemplate?: string
+  bodyTemplate?: string
 }
 
 export interface IdleContract {
@@ -299,6 +331,22 @@ export interface NoTimeEmailPreview {
   from: string
   toDate: string
   contracts: IdleContract[]
+}
+
+/** Optional fields cross the Tauri boundary as explicit nulls, matching how the Rust
+ * commands declare them. */
+function emailTemplateArgs(input: EmailTemplateInput) {
+  return {
+    name: input.name,
+    description: input.description ?? null,
+    notes: input.notes ?? null,
+    email: input.email ?? null,
+    contractId: input.contractId ?? null,
+    dateRange: input.dateRange,
+    subjectTemplate: input.subjectTemplate ?? null,
+    bodyTemplate: input.bodyTemplate ?? null,
+    dateFormat: input.dateFormat,
+  }
 }
 
 export const api = {
@@ -510,41 +558,13 @@ export const api = {
   purgeAllData: () => invoke<PurgeAllResult>('purge_all_data'),
 
   listEmailTemplates: () => invoke<EmailTemplate[]>('list_email_templates'),
-  createEmailTemplate: (
-    name: string,
-    dateRange: EmailDateRange,
-    description?: string,
-    notes?: string,
-    email?: string,
-    contractId?: number,
-  ) =>
-    invoke<number>('create_email_template', {
-      name,
-      description: description ?? null,
-      notes: notes ?? null,
-      email: email ?? null,
-      contractId: contractId ?? null,
-      dateRange,
-    }),
-  updateEmailTemplate: (
-    id: number,
-    name: string,
-    dateRange: EmailDateRange,
-    description?: string,
-    notes?: string,
-    email?: string,
-    contractId?: number,
-  ) =>
-    invoke<void>('update_email_template', {
-      id,
-      name,
-      description: description ?? null,
-      notes: notes ?? null,
-      email: email ?? null,
-      contractId: contractId ?? null,
-      dateRange,
-    }),
+  createEmailTemplate: (input: EmailTemplateInput) =>
+    invoke<number>('create_email_template', emailTemplateArgs(input)),
+  updateEmailTemplate: (id: number, input: EmailTemplateInput) =>
+    invoke<void>('update_email_template', { id, ...emailTemplateArgs(input) }),
   deleteEmailTemplate: (id: number) => invoke<void>('delete_email_template', { id }),
+  /** Passing no id clears the default, leaving no template preselected. */
+  setDefaultEmailTemplate: (id?: number) => invoke<void>('set_default_email_template', { id: id ?? null }),
   generateNoTimeEmail: (templateId: number, referenceDate: string) =>
     invoke<NoTimeEmailPreview>('generate_no_time_email', {
       templateId,

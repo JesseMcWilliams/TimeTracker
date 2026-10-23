@@ -142,6 +142,7 @@ pub fn run() {
             commands::create_email_template,
             commands::update_email_template,
             commands::delete_email_template,
+            commands::set_default_email_template,
             commands::generate_no_time_email,
         ])
         .run(tauri::generate_context!())

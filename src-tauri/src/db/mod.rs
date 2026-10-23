@@ -63,6 +63,10 @@ const MIGRATIONS: &[(&str, &str)] = &[
         "0016_email_templates",
         include_str!("../../migrations/0016_email_templates.sql"),
     ),
+    (
+        "0017_email_template_content",
+        include_str!("../../migrations/0017_email_template_content.sql"),
+    ),
 ];
 
 pub fn open(db_path: &Path) -> Result<Connection, Box<dyn std::error::Error>> {
