@@ -28,4 +28,4 @@ csv = "1.4"
 rust_xlsxwriter = "0.101"
 chrono = { version = "0.4", features = ["serde"] }
 tauri-plugin-dialog = "2.7.2"
-calamine = { version = "0.36.1", features = ["dates"] }
+calamine = { version = "0.37.0", features = ["dates"] }
