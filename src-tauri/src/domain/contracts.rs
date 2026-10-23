@@ -201,8 +201,9 @@ pub fn minimum_increment_for_contract(conn: &Connection, contract_id: i64) -> Do
 }
 
 /// Adds (or, with a negative `hours_delta`, removes) hours from a contract's lifetime
-/// hours budget. The running total is the sum of every adjustment ever recorded; there
-/// is no separate "set total to X" operation, mirroring how rate changes are tracked.
+/// hours budget. The running total is the sum of every adjustment ever recorded,
+/// mirroring how rate changes are tracked. See `set_contract_hours` to state a total
+/// directly instead of working out the difference yourself.
 pub fn add_contract_hours(
     conn: &Connection,
     contract_id: i64,
@@ -215,6 +216,37 @@ pub fn add_contract_hours(
     )
     .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+/// Hours budgets smaller than this are treated as zero. Budgets are negotiated in
+/// quarter-hours at the finest, so anything under a thousandth of an hour is floating
+/// point noise from summing the log rather than a difference anyone meant.
+const HOURS_EPSILON: f64 = 0.001;
+
+/// Makes a contract's hours budget equal `total_hours`, by recording the adjustment that
+/// closes the gap between the current total and the one asked for.
+///
+/// The log stays append-only — nothing already recorded is rewritten — so the history
+/// still shows how the budget reached its current value, and `total_hours_budgeted`
+/// keeps its single definition as the sum of every adjustment. Setting the total to what
+/// it already is records nothing rather than a zero-sized entry.
+pub fn set_contract_hours(
+    conn: &Connection,
+    contract_id: i64,
+    total_hours: f64,
+    note: Option<&str>,
+) -> DomainResult<()> {
+    let current = total_hours_budgeted(conn, contract_id)?;
+    let delta = total_hours - current;
+    if delta.abs() < HOURS_EPSILON {
+        return Ok(());
+    }
+
+    // Without a note of their own, record what was asked for: the log otherwise shows a
+    // bare delta, which reads as arbitrary next to the total it was meant to produce.
+    let default_note = format!("Set total to {total_hours}");
+    let note = note.filter(|n| !n.trim().is_empty()).unwrap_or(&default_note);
+    add_contract_hours(conn, contract_id, delta, Some(note))
 }
 
 pub fn total_hours_budgeted(conn: &Connection, contract_id: i64) -> DomainResult<f64> {
@@ -330,6 +362,161 @@ mod tests {
         let db_path = std::env::temp_dir().join(format!("timetracker_test_contracts_{pid}_{name}.sqlite"));
         let _ = fs::remove_file(&db_path);
         crate::db::open(&db_path).expect("open db")
+    }
+
+    fn adjustment_count(conn: &Connection, contract_id: i64) -> i64 {
+        conn.query_row(
+            "SELECT COUNT(*) FROM contract_hour_adjustments WHERE contract_id = ?1",
+            params![contract_id],
+            |row| row.get(0),
+        )
+        .expect("count adjustments")
+    }
+
+    #[test]
+    fn setting_a_total_on_a_contract_with_no_budget_records_the_whole_amount() {
+        let conn = test_db("set_from_zero");
+        let client_id = create_client(&conn, "Client", None).expect("create client");
+        let contract_id = create_contract(&conn, client_id, "Contract", "USD", 50.0).expect("create contract");
+
+        set_contract_hours(&conn, contract_id, 235.25, None).expect("set total");
+
+        assert_eq!(total_hours_budgeted(&conn, contract_id).expect("query"), 235.25);
+    }
+
+    /// The point of the operation: state the total you want and let the log work out
+    /// the difference, rather than adding up the gap by hand.
+    #[test]
+    fn setting_a_total_records_only_the_difference_from_the_current_one() {
+        let conn = test_db("set_records_delta");
+        let client_id = create_client(&conn, "Client", None).expect("create client");
+        let contract_id = create_contract(&conn, client_id, "Contract", "USD", 50.0).expect("create contract");
+        add_contract_hours(&conn, contract_id, 200.0, Some("initial")).expect("add hours");
+
+        set_contract_hours(&conn, contract_id, 235.25, None).expect("set total");
+
+        assert_eq!(total_hours_budgeted(&conn, contract_id).expect("query"), 235.25);
+        let recorded: f64 = conn
+            .query_row(
+                "SELECT hours_delta FROM contract_hour_adjustments WHERE contract_id = ?1 ORDER BY id DESC LIMIT 1",
+                params![contract_id],
+                |row| row.get(0),
+            )
+            .expect("read last adjustment");
+        assert_eq!(recorded, 35.25, "only the gap is recorded, not the whole total");
+    }
+
+    /// Append-only: setting a total must never rewrite or remove what came before, or
+    /// the history stops explaining how the budget got where it is.
+    #[test]
+    fn setting_a_total_leaves_the_earlier_adjustments_in_place() {
+        let conn = test_db("set_keeps_history");
+        let client_id = create_client(&conn, "Client", None).expect("create client");
+        let contract_id = create_contract(&conn, client_id, "Contract", "USD", 50.0).expect("create contract");
+        add_contract_hours(&conn, contract_id, 51.5, None).expect("add hours");
+        add_contract_hours(&conn, contract_id, 172.5, None).expect("add hours");
+
+        set_contract_hours(&conn, contract_id, 100.0, None).expect("set total");
+
+        assert_eq!(adjustment_count(&conn, contract_id), 3, "the two earlier rows survive");
+        assert_eq!(total_hours_budgeted(&conn, contract_id).expect("query"), 100.0);
+    }
+
+    #[test]
+    fn setting_a_lower_total_records_a_negative_adjustment() {
+        let conn = test_db("set_lower");
+        let client_id = create_client(&conn, "Client", None).expect("create client");
+        let contract_id = create_contract(&conn, client_id, "Contract", "USD", 50.0).expect("create contract");
+        add_contract_hours(&conn, contract_id, 100.0, None).expect("add hours");
+
+        set_contract_hours(&conn, contract_id, 40.0, None).expect("set total");
+
+        assert_eq!(total_hours_budgeted(&conn, contract_id).expect("query"), 40.0);
+    }
+
+    #[test]
+    fn setting_the_total_to_what_it_already_is_records_nothing() {
+        let conn = test_db("set_noop");
+        let client_id = create_client(&conn, "Client", None).expect("create client");
+        let contract_id = create_contract(&conn, client_id, "Contract", "USD", 50.0).expect("create contract");
+        add_contract_hours(&conn, contract_id, 40.0, None).expect("add hours");
+
+        set_contract_hours(&conn, contract_id, 40.0, None).expect("set total");
+
+        assert_eq!(adjustment_count(&conn, contract_id), 1, "no zero-sized row is added");
+    }
+
+    #[test]
+    fn setting_a_total_to_zero_clears_the_budget() {
+        let conn = test_db("set_zero");
+        let client_id = create_client(&conn, "Client", None).expect("create client");
+        let contract_id = create_contract(&conn, client_id, "Contract", "USD", 50.0).expect("create contract");
+        add_contract_hours(&conn, contract_id, 40.0, None).expect("add hours");
+
+        set_contract_hours(&conn, contract_id, 0.0, None).expect("set total");
+
+        assert_eq!(total_hours_budgeted(&conn, contract_id).expect("query"), 0.0);
+    }
+
+    /// A bare delta in the log reads as arbitrary next to the total it was meant to
+    /// produce, so the default note says what was asked for.
+    #[test]
+    fn a_set_without_a_note_records_what_was_asked_for() {
+        let conn = test_db("set_default_note");
+        let client_id = create_client(&conn, "Client", None).expect("create client");
+        let contract_id = create_contract(&conn, client_id, "Contract", "USD", 50.0).expect("create contract");
+
+        set_contract_hours(&conn, contract_id, 235.25, None).expect("set total");
+
+        let note: Option<String> = conn
+            .query_row(
+                "SELECT note FROM contract_hour_adjustments WHERE contract_id = ?1",
+                params![contract_id],
+                |row| row.get(0),
+            )
+            .expect("read note");
+        assert_eq!(note.as_deref(), Some("Set total to 235.25"));
+    }
+
+    #[test]
+    fn a_caller_supplied_note_wins_over_the_default() {
+        let conn = test_db("set_custom_note");
+        let client_id = create_client(&conn, "Client", None).expect("create client");
+        let contract_id = create_contract(&conn, client_id, "Contract", "USD", 50.0).expect("create contract");
+
+        set_contract_hours(&conn, contract_id, 10.0, Some("PO amendment 3")).expect("set total");
+
+        let note: Option<String> = conn
+            .query_row(
+                "SELECT note FROM contract_hour_adjustments WHERE contract_id = ?1",
+                params![contract_id],
+                |row| row.get(0),
+            )
+            .expect("read note");
+        assert_eq!(note.as_deref(), Some("PO amendment 3"));
+    }
+
+    /// Reproduces how the SAIA budget was actually built — three separate additions to
+    /// creep up on a figure — and shows the single call that replaces it.
+    #[test]
+    fn setting_a_total_replaces_adding_up_to_it_by_hand() {
+        let conn = test_db("set_vs_creep");
+        let client_id = create_client(&conn, "Client", None).expect("create client");
+
+        let by_hand = create_contract(&conn, client_id, "By hand", "USD", 50.0).expect("create contract");
+        for delta in [51.5, 172.5, 11.25] {
+            add_contract_hours(&conn, by_hand, delta, None).expect("add hours");
+        }
+
+        let at_once = create_contract(&conn, client_id, "At once", "USD", 50.0).expect("create contract");
+        set_contract_hours(&conn, at_once, 235.25, None).expect("set total");
+
+        assert_eq!(
+            total_hours_budgeted(&conn, by_hand).expect("query"),
+            total_hours_budgeted(&conn, at_once).expect("query")
+        );
+        assert_eq!(adjustment_count(&conn, by_hand), 3);
+        assert_eq!(adjustment_count(&conn, at_once), 1);
     }
 
     #[test]

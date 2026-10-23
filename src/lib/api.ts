@@ -394,6 +394,10 @@ export const api = {
     invoke<Contract[]>('list_contracts', { includeArchived }),
   updateContractRate: (contractId: number, newHourlyRate: number) =>
     invoke<void>('update_contract_rate', { contractId, newHourlyRate }),
+  /** Records the adjustment that makes the budget equal `totalHours`; the log stays
+   * append-only, so earlier adjustments are kept. */
+  setContractHours: (contractId: number, totalHours: number, note?: string) =>
+    invoke<void>('set_contract_hours', { contractId, totalHours, note: note ?? null }),
   addContractHours: (contractId: number, hoursDelta: number, note?: string) =>
     invoke<void>('add_contract_hours', { contractId, hoursDelta, note: note ?? null }),
   updateContractDetails: (
