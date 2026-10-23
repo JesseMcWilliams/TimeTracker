@@ -2,9 +2,9 @@
   "bomFormat": "CycloneDX",
   "specVersion": "1.5",
   "version": 1,
-  "serialNumber": "urn:uuid:ecf4c471-ed03-49fd-9f0c-1a0aad58172d",
+  "serialNumber": "urn:uuid:3e679155-eb47-4d5f-bece-5978785c3cf9",
   "metadata": {
-    "timestamp": "2026-10-16T22:49:27.831981100Z",
+    "timestamp": "2026-10-23T19:26:21.905231800Z",
     "tools": [
       {
         "vendor": "CycloneDX",
@@ -19,10 +19,10 @@
     ],
     "component": {
       "type": "application",
-      "bom-ref": "path+file:///C:/Code/TimeTracker/src-tauri#app@0.4.0",
+      "bom-ref": "path+file:///C:/Code/TimeTracker/src-tauri#app@0.5.0",
       "author": "you",
       "name": "app",
-      "version": "0.4.0",
+      "version": "0.5.0",
       "description": "A Tauri App",
       "scope": "required",
       "licenses": [
@@ -30,7 +30,7 @@
           "expression": "MIT"
         }
       ],
-      "purl": "pkg:cargo/app@0.4.0?download_url=file://.",
+      "purl": "pkg:cargo/app@0.5.0?download_url=file://.",
       "externalReferences": [
         {
           "type": "vcs",
@@ -40,17 +40,17 @@
       "components": [
         {
           "type": "library",
-          "bom-ref": "path+file:///C:/Code/TimeTracker/src-tauri#app@0.4.0 bin-target-0",
+          "bom-ref": "path+file:///C:/Code/TimeTracker/src-tauri#app@0.5.0 bin-target-0",
           "name": "app_lib",
-          "version": "0.4.0",
-          "purl": "pkg:cargo/app@0.4.0?download_url=file://.#src/lib.rs"
+          "version": "0.5.0",
+          "purl": "pkg:cargo/app@0.5.0?download_url=file://.#src/lib.rs"
         },
         {
           "type": "application",
-          "bom-ref": "path+file:///C:/Code/TimeTracker/src-tauri#app@0.4.0 bin-target-1",
+          "bom-ref": "path+file:///C:/Code/TimeTracker/src-tauri#app@0.5.0 bin-target-1",
           "name": "app",
-          "version": "0.4.0",
-          "purl": "pkg:cargo/app@0.4.0?download_url=file://.#src/main.rs"
+          "version": "0.5.0",
+          "purl": "pkg:cargo/app@0.5.0?download_url=file://.#src/main.rs"
         }
       ]
     },
@@ -680,16 +680,16 @@
     },
     {
       "type": "library",
-      "bom-ref": "registry+https://github.com/rust-lang/crates.io-index#calamine@0.36.1",
+      "bom-ref": "registry+https://github.com/rust-lang/crates.io-index#calamine@0.37.0",
       "author": "Johann Tuffe <tafia973@gmail.com>",
       "name": "calamine",
-      "version": "0.36.1",
+      "version": "0.37.0",
       "description": "An Excel/OpenDocument Spreadsheet reader and deserializer in pure Rust",
       "scope": "required",
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "5fa68281b1a76b54a62156474adb06bb380a67e07dd60656e3217152b42183f3"
+          "content": "c9ca341b94bc4b29e08970b1a03914fad2dfe177e2ecb67fcd6de9046004aafb"
         }
       ],
       "licenses": [
@@ -697,7 +697,7 @@
           "expression": "MIT"
         }
       ],
-      "purl": "pkg:cargo/calamine@0.36.1",
+      "purl": "pkg:cargo/calamine@0.37.0",
       "externalReferences": [
         {
           "type": "documentation",
@@ -4516,6 +4516,36 @@
     },
     {
       "type": "library",
+      "bom-ref": "registry+https://github.com/rust-lang/crates.io-index#quick-xml@0.42.0",
+      "name": "quick-xml",
+      "version": "0.42.0",
+      "description": "High performance xml reader and writer",
+      "scope": "required",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "41b1177fdf999d2321d3fb46ff47159d9c1fb9ad66a4879f8c50a0b504615e9b"
+        }
+      ],
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "purl": "pkg:cargo/quick-xml@0.42.0",
+      "externalReferences": [
+        {
+          "type": "documentation",
+          "url": "https://docs.rs/quick-xml"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/tafia/quick-xml"
+        }
+      ]
+    },
+    {
+      "type": "library",
       "bom-ref": "registry+https://github.com/rust-lang/crates.io-index#quote@1.0.47",
       "author": "David Tolnay <dtolnay@gmail.com>",
       "name": "quote",
@@ -4807,16 +4837,16 @@
     },
     {
       "type": "library",
-      "bom-ref": "registry+https://github.com/rust-lang/crates.io-index#rust_xlsxwriter@0.96.0",
+      "bom-ref": "registry+https://github.com/rust-lang/crates.io-index#rust_xlsxwriter@0.101.0",
       "author": "John McNamara <jmcnamara@cpan.org>",
       "name": "rust_xlsxwriter",
-      "version": "0.96.0",
+      "version": "0.101.0",
       "description": "A Rust library for writing Excel 2007 xlsx files",
       "scope": "required",
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "dd1746025420e17b5d62528b930e550e016e857038794d74e169018126ef3d14"
+          "content": "49aa1d1558e9465f5053bf9fb5361fe75db827c6a4423d5e5fe72096622f8908"
         }
       ],
       "licenses": [
@@ -4824,7 +4854,7 @@
           "expression": "MIT OR Apache-2.0"
         }
       ],
-      "purl": "pkg:cargo/rust_xlsxwriter@0.96.0",
+      "purl": "pkg:cargo/rust_xlsxwriter@0.101.0",
       "externalReferences": [
         {
           "type": "website",
@@ -8670,43 +8700,16 @@
     },
     {
       "type": "library",
-      "bom-ref": "registry+https://github.com/rust-lang/crates.io-index#zip@7.2.0",
+      "bom-ref": "registry+https://github.com/rust-lang/crates.io-index#zip@9.0.5",
       "author": "Mathijs van de Nes <git@mathijs.vd-nes.nl>, Marli Frost <marli@frost.red>, Ryan Levick <ryan.levick@gmail.com>, Chris Hennick <hennickc@amazon.com>",
       "name": "zip",
-      "version": "7.2.0",
-      "description": "Library to support the reading and writing of zip files. ",
-      "scope": "required",
-      "hashes": [
-        {
-          "alg": "SHA-256",
-          "content": "c42e33efc22a0650c311c2ef19115ce232583abbe80850bc8b66509ebef02de0"
-        }
-      ],
-      "licenses": [
-        {
-          "expression": "MIT"
-        }
-      ],
-      "purl": "pkg:cargo/zip@7.2.0",
-      "externalReferences": [
-        {
-          "type": "vcs",
-          "url": "https://github.com/zip-rs/zip2.git"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "bom-ref": "registry+https://github.com/rust-lang/crates.io-index#zip@8.6.0",
-      "author": "Mathijs van de Nes <git@mathijs.vd-nes.nl>, Marli Frost <marli@frost.red>, Ryan Levick <ryan.levick@gmail.com>, Chris Hennick <hennickc@amazon.com>",
-      "name": "zip",
-      "version": "8.6.0",
+      "version": "9.0.5",
       "description": "Library to support the reading and writing of zip files.",
       "scope": "required",
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "2d04a6b5381502aa6087c94c669499eb1602eb9c5e8198e534de571f7154809b"
+          "content": "6e04976da629d3b04204ba8105b396a193af8ad2583b2c79bfb3ab8af580a11e"
         }
       ],
       "licenses": [
@@ -8714,7 +8717,7 @@
           "expression": "MIT"
         }
       ],
-      "purl": "pkg:cargo/zip@8.6.0",
+      "purl": "pkg:cargo/zip@9.0.5",
       "externalReferences": [
         {
           "type": "vcs",
@@ -8816,14 +8819,14 @@
   ],
   "dependencies": [
     {
-      "ref": "path+file:///C:/Code/TimeTracker/src-tauri#app@0.4.0",
+      "ref": "path+file:///C:/Code/TimeTracker/src-tauri#app@0.5.0",
       "dependsOn": [
-        "registry+https://github.com/rust-lang/crates.io-index#calamine@0.36.1",
+        "registry+https://github.com/rust-lang/crates.io-index#calamine@0.37.0",
         "registry+https://github.com/rust-lang/crates.io-index#chrono@0.4.45",
         "registry+https://github.com/rust-lang/crates.io-index#csv@1.4.0",
         "registry+https://github.com/rust-lang/crates.io-index#log@0.4.34",
         "registry+https://github.com/rust-lang/crates.io-index#rusqlite@0.38.0",
-        "registry+https://github.com/rust-lang/crates.io-index#rust_xlsxwriter@0.96.0",
+        "registry+https://github.com/rust-lang/crates.io-index#rust_xlsxwriter@0.101.0",
         "registry+https://github.com/rust-lang/crates.io-index#serde@1.0.229",
         "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.151",
         "registry+https://github.com/rust-lang/crates.io-index#tauri@2.11.5",
@@ -8924,7 +8927,7 @@
       ]
     },
     {
-      "ref": "registry+https://github.com/rust-lang/crates.io-index#calamine@0.36.1",
+      "ref": "registry+https://github.com/rust-lang/crates.io-index#calamine@0.37.0",
       "dependsOn": [
         "registry+https://github.com/rust-lang/crates.io-index#atoi_simd@0.18.1",
         "registry+https://github.com/rust-lang/crates.io-index#byteorder@1.5.0",
@@ -8933,9 +8936,9 @@
         "registry+https://github.com/rust-lang/crates.io-index#encoding_rs@0.8.35",
         "registry+https://github.com/rust-lang/crates.io-index#fast-float2@0.2.4",
         "registry+https://github.com/rust-lang/crates.io-index#log@0.4.34",
-        "registry+https://github.com/rust-lang/crates.io-index#quick-xml@0.41.0",
+        "registry+https://github.com/rust-lang/crates.io-index#quick-xml@0.42.0",
         "registry+https://github.com/rust-lang/crates.io-index#serde@1.0.229",
-        "registry+https://github.com/rust-lang/crates.io-index#zip@8.6.0"
+        "registry+https://github.com/rust-lang/crates.io-index#zip@9.0.5"
       ]
     },
     {
@@ -9700,6 +9703,12 @@
     {
       "ref": "registry+https://github.com/rust-lang/crates.io-index#quick-xml@0.41.0",
       "dependsOn": [
+        "registry+https://github.com/rust-lang/crates.io-index#memchr@2.8.3"
+      ]
+    },
+    {
+      "ref": "registry+https://github.com/rust-lang/crates.io-index#quick-xml@0.42.0",
+      "dependsOn": [
         "registry+https://github.com/rust-lang/crates.io-index#encoding_rs@0.8.35",
         "registry+https://github.com/rust-lang/crates.io-index#memchr@2.8.3"
       ]
@@ -9767,9 +9776,9 @@
       ]
     },
     {
-      "ref": "registry+https://github.com/rust-lang/crates.io-index#rust_xlsxwriter@0.96.0",
+      "ref": "registry+https://github.com/rust-lang/crates.io-index#rust_xlsxwriter@0.101.0",
       "dependsOn": [
-        "registry+https://github.com/rust-lang/crates.io-index#zip@7.2.0"
+        "registry+https://github.com/rust-lang/crates.io-index#zip@9.0.5"
       ]
     },
     {
@@ -10796,18 +10805,7 @@
       ]
     },
     {
-      "ref": "registry+https://github.com/rust-lang/crates.io-index#zip@7.2.0",
-      "dependsOn": [
-        "registry+https://github.com/rust-lang/crates.io-index#crc32fast@1.5.1",
-        "registry+https://github.com/rust-lang/crates.io-index#flate2@1.1.10",
-        "registry+https://github.com/rust-lang/crates.io-index#indexmap@2.14.1",
-        "registry+https://github.com/rust-lang/crates.io-index#memchr@2.8.3",
-        "registry+https://github.com/rust-lang/crates.io-index#typed-path@0.12.3",
-        "registry+https://github.com/rust-lang/crates.io-index#zopfli@0.8.3"
-      ]
-    },
-    {
-      "ref": "registry+https://github.com/rust-lang/crates.io-index#zip@8.6.0",
+      "ref": "registry+https://github.com/rust-lang/crates.io-index#zip@9.0.5",
       "dependsOn": [
         "registry+https://github.com/rust-lang/crates.io-index#crc32fast@1.5.1",
         "registry+https://github.com/rust-lang/crates.io-index#flate2@1.1.10",
