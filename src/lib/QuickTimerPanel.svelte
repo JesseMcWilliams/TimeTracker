@@ -1,6 +1,6 @@
 <script lang="ts">
   import { api } from './api'
-  import { store, activeClients, activeContracts, refreshActiveTimers, refreshEntries } from './store.svelte'
+  import { store, activeClients, activeContracts, refreshActiveTimers, refreshAfterEntryChange } from './store.svelte'
   import { formatDateTime } from './dateUtils'
 
   let { onGoToTimer }: { onGoToTimer: () => void } = $props()
@@ -27,7 +27,7 @@
     delete errorsByClient[clientId]
     try {
       await api.startTimer(contractId, undefined, defaultTrackingCodeId ?? undefined)
-      await Promise.all([refreshActiveTimers(), refreshEntries()])
+      await Promise.all([refreshActiveTimers(), refreshAfterEntryChange()])
     } catch (e) {
       errorsByClient[clientId] = String(e)
     } finally {
@@ -40,7 +40,7 @@
     delete errorsByClient[clientId]
     try {
       await api.stopTimer(entryId)
-      await Promise.all([refreshActiveTimers(), refreshEntries()])
+      await Promise.all([refreshActiveTimers(), refreshAfterEntryChange()])
     } catch (e) {
       errorsByClient[clientId] = String(e)
     } finally {

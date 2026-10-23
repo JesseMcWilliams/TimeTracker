@@ -1,7 +1,7 @@
 <script lang="ts">
   import { open } from '@tauri-apps/plugin-dialog'
   import { api, type ImportPreviewSheet, type ImportResult } from './api'
-  import { store, activeClients, activeContracts } from './store.svelte'
+  import { store, activeClients, activeContracts, refreshAfterEntryChange } from './store.svelte'
 
   let { onGoToTemplate }: { onGoToTemplate: (templateId: number | null) => void } = $props()
 
@@ -85,6 +85,7 @@
       result = await api.importTimeEntries(Number(contractId), filePaths, Number(templateId))
       filePaths = []
       preview = null
+      await refreshAfterEntryChange()
     } catch (e) {
       error = String(e)
     } finally {

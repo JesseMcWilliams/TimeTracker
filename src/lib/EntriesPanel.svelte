@@ -10,7 +10,7 @@
     activeContracts,
     isContractArchived,
     loadTrackingCodesForClient,
-    refreshEntries,
+    refreshAfterEntryChange,
     hasHoursBudget,
     remainingHours,
     payWeekStartFor,
@@ -224,7 +224,7 @@
       newEnd = ''
       newNotes = ''
       newTrackingCodeId = ''
-      await Promise.all([loadEntries(), refreshEntries()])
+      await Promise.all([loadEntries(), refreshAfterEntryChange()])
     } finally {
       busy = false
     }
@@ -236,7 +236,7 @@
     busy = true
     try {
       await api.deleteEntry(entryId)
-      await Promise.all([loadEntries(), refreshEntries()])
+      await Promise.all([loadEntries(), refreshAfterEntryChange()])
     } finally {
       busy = false
     }
@@ -252,7 +252,7 @@
     try {
       await Promise.all(selectedEntries.map((e) => api.deleteEntry(e.id)))
       bulkMessage = `Deleted ${count} entr${count === 1 ? 'y' : 'ies'}.`
-      await Promise.all([loadEntries(), refreshEntries()])
+      await Promise.all([loadEntries(), refreshAfterEntryChange()])
     } finally {
       bulkBusy = false
     }
@@ -278,7 +278,7 @@
       }
     }
     bulkMessage = `Updated category on ${applied} entr${applied === 1 ? 'y' : 'ies'}${skipped > 0 ? `, skipped ${skipped} running timer(s)` : ''}.${errors.length > 0 ? ' Errors: ' + errors.join('; ') : ''}`
-    await Promise.all([loadEntries(), refreshEntries()])
+    await Promise.all([loadEntries(), refreshAfterEntryChange()])
     bulkBusy = false
   }
 </script>
