@@ -54,7 +54,14 @@ Rough semver guidance pre-1.0 (where breaking changes are expected occasionally)
 ## Cutting a release
 
 1. Make sure `main` is what you want to ship (merge in any finished feature/fix
-   branches first).
+   branches first), and that it is green:
+
+   ```
+   npm test                       # vitest: logic, store, component, and guard tests
+   npm run check                  # svelte-check + tsc
+   cd src-tauri && cargo test     # domain and migration tests
+   ```
+
 2. Bump the version: `npm run bump-version -- <patch|minor|major|X.Y.Z>`, then follow
    the steps it prints (regenerate `Cargo.lock`, commit, tag `vX.Y.Z`, push).
 3. Build: `npm run build && npx tauri build` (Windows only from this machine — see
@@ -65,9 +72,27 @@ Rough semver guidance pre-1.0 (where breaking changes are expected occasionally)
 4. Copy the resulting installer(s) (and, on Windows, `target/release/app.exe` as the
    portable variant) into `releases/vX.Y.Z/`, renamed per `releases/README.md`'s
    naming convention.
+
+   **Select them by name and check the timestamp.** `target/release/bundle/` keeps
+   every version ever built on this machine, so copying "whatever is in the folder"
+   will happily publish the previous release's binaries under the new version's name.
+   `(Get-Item <file>).VersionInfo.ProductVersion` confirms what a binary actually is.
 5. Publish: `gh release create vX.Y.Z releases/vX.Y.Z/* --title "vX.Y.Z" --notes "..."`
    (or upload additional platform builds to the same release later with
    `gh release upload vX.Y.Z <file>`).
+6. **Update `Design Documents/Handoff.md`** and commit it. A release is the natural
+   point for this: the version it names has just changed, and whatever was learned
+   getting there is still fresh. Overwrite it rather than appending — it is a
+   point-in-time snapshot, not a changelog. What belongs in it:
+
+   - the new version, and that nothing is left unreleased on `main`;
+   - anything that bit during the cycle and would bite again — not what the code
+     does, which the code already says, but what is *not* visible from reading it;
+   - anything deliberately left undone, and why.
+
+   Release notes tell users what changed. The handoff tells the next person working
+   on this what they would otherwise have to rediscover. They are different documents
+   and the second one is the one that gets skipped.
 
 ## Hotfixing an already-released version
 
