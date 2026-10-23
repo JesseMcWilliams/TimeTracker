@@ -71,6 +71,10 @@ const MIGRATIONS: &[(&str, &str)] = &[
         "0018_pay_week_start",
         include_str!("../../migrations/0018_pay_week_start.sql"),
     ),
+    (
+        "0019_entry_local_date",
+        include_str!("../../migrations/0019_entry_local_date.sql"),
+    ),
 ];
 
 pub fn open(db_path: &Path) -> Result<Connection, Box<dyn std::error::Error>> {
@@ -169,6 +173,76 @@ mod tests {
         drop(open(&db_path).expect("reopen already-current db"));
 
         assert!(!dir.join("backups").exists(), "no pending migrations means no upgrade, so no backup");
+    }
+
+    /// The 0019 backfill has to reach entries that already existed, and has to agree
+    /// with what the write path would have recorded for the same instant. A row left
+    /// with a NULL day would silently vanish from every period query.
+    #[test]
+    fn the_local_date_migration_backfills_entries_written_before_it() {
+        use chrono::{DateTime, Local, Offset};
+
+        let dir = test_dir("local_date_backfill");
+        let db_path = dir.join("timetracker.sqlite");
+
+        // An older install: migrated up to 0018, so time_entries exists but has neither
+        // of the columns 0019 adds.
+        let legacy_count = MIGRATIONS.iter().position(|(name, _)| *name == "0019_entry_local_date").expect("0019 present");
+        {
+            let conn = Connection::open(&db_path).expect("create db file");
+            conn.pragma_update(None, "foreign_keys", true).expect("enable fks");
+            conn.execute_batch(
+                "CREATE TABLE schema_version (
+                    version    INTEGER PRIMARY KEY,
+                    name       TEXT NOT NULL,
+                    applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+                )",
+            )
+            .expect("create schema_version");
+            for (index, (name, sql)) in MIGRATIONS.iter().take(legacy_count).enumerate() {
+                conn.execute_batch(sql).unwrap_or_else(|e| panic!("apply {name}: {e}"));
+                conn.execute("INSERT INTO schema_version (version, name) VALUES (?1, ?2)", ((index + 1) as i64, *name))
+                    .expect("record migration");
+            }
+
+            conn.execute("INSERT INTO clients (name) VALUES ('Legacy Client')", []).expect("client");
+            conn.execute("INSERT INTO contracts (client_id, name, currency) VALUES (1, 'Legacy', 'USD')", [])
+                .expect("contract");
+            // Just after UTC midnight: the case where the UTC day and the local day differ
+            // west of Greenwich, which is exactly what this column exists to pin down.
+            conn.execute(
+                "INSERT INTO time_entries (contract_id, started_at, ended_at, duration_secs, rate_snapshot, source)
+                 VALUES (1, '2026-08-24T00:30:00Z', '2026-08-24T01:30:00Z', 3600, 50.0, 'manual')",
+                [],
+            )
+            .expect("legacy entry");
+        }
+
+        let conn = open(&db_path).expect("migrate the rest of the way");
+
+        let (local_date, offset): (String, i32) = conn
+            .query_row("SELECT local_date, utc_offset_minutes FROM time_entries WHERE id = 1", [], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })
+            .expect("backfilled row");
+
+        let expected = DateTime::parse_from_rfc3339("2026-08-24T00:30:00Z").unwrap().with_timezone(&Local);
+        assert_eq!(local_date, expected.date_naive().format("%Y-%m-%d").to_string());
+        assert_eq!(offset, expected.offset().fix().local_minus_utc() / 60);
+    }
+
+    /// Re-running the whole chain on a database that already has 0019 applied must be a
+    /// no-op — the runner tracks by count, and a second ALTER TABLE would fail outright.
+    #[test]
+    fn reopening_after_the_local_date_migration_changes_nothing() {
+        let dir = test_dir("local_date_idempotent");
+        let db_path = dir.join("timetracker.sqlite");
+
+        open(&db_path).expect("first open");
+        let conn = open(&db_path).expect("second open must not reapply 0019");
+
+        let applied: i64 = conn.query_row("SELECT COUNT(*) FROM schema_version", [], |row| row.get(0)).expect("count");
+        assert_eq!(applied as usize, MIGRATIONS.len());
     }
 
     #[test]

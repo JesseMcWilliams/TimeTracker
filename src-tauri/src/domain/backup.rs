@@ -48,6 +48,11 @@ struct TableSpec {
     /// real NULL — an empty-string value in that INTEGER column would break every
     /// later read of the row).
     nullable: &'static [&'static str],
+    /// Header rows from backups written by older versions, still accepted on restore.
+    /// A backup file is identified purely by its header row, so adding a column to
+    /// `headers` would otherwise make every previously written file unrecognisable.
+    /// Columns a legacy file lacks restore as NULL (see `restore_rows`).
+    legacy_headers: &'static [&'static [&'static str]],
 }
 
 /// Order matters: earlier tables are restored first so foreign keys they're referenced
@@ -74,6 +79,7 @@ const TABLES: &[TableSpec] = &[
             "created_at",
         ],
         nullable: &["notes", "prime", "sub", "external_id", "default_tracking_code_id", "archived_at"],
+        legacy_headers: &[],
     },
     TableSpec {
         data_type: "Contracts",
@@ -83,6 +89,7 @@ const TABLES: &[TableSpec] = &[
               FROM contracts ORDER BY id",
         headers: &["id", "client_id", "name", "currency", "external_id", "start_date", "archived_at", "created_at"],
         nullable: &["external_id", "start_date", "archived_at"],
+        legacy_headers: &[],
     },
     TableSpec {
         data_type: "ContractRates",
@@ -91,6 +98,7 @@ const TABLES: &[TableSpec] = &[
         sql: "SELECT id, contract_id, hourly_rate, effective_from, created_at FROM contract_rates ORDER BY id",
         headers: &["id", "contract_id", "hourly_rate", "effective_from", "created_at"],
         nullable: &[],
+        legacy_headers: &[],
     },
     TableSpec {
         data_type: "Categories",
@@ -99,13 +107,15 @@ const TABLES: &[TableSpec] = &[
         sql: "SELECT id, client_id, code, description, archived_at, created_at FROM tracking_codes ORDER BY id",
         headers: &["id", "client_id", "code", "description", "archived_at", "created_at"],
         nullable: &["description", "archived_at"],
+        legacy_headers: &[],
     },
     TableSpec {
         data_type: "TimeEntries",
         table_name: "time_entries",
         filename_suffix: "TimeEntries_Backup",
         sql: "SELECT id, contract_id, started_at, ended_at, duration_secs, rate_snapshot, notes, source, \
-              external_ref, tracking_code_id, created_at, updated_at, deleted_at FROM time_entries ORDER BY id",
+              external_ref, tracking_code_id, created_at, updated_at, deleted_at, local_date, utc_offset_minutes \
+              FROM time_entries ORDER BY id",
         headers: &[
             "id",
             "contract_id",
@@ -120,8 +130,36 @@ const TABLES: &[TableSpec] = &[
             "created_at",
             "updated_at",
             "deleted_at",
+            "local_date",
+            "utc_offset_minutes",
         ],
-        nullable: &["ended_at", "duration_secs", "notes", "external_ref", "tracking_code_id", "deleted_at"],
+        nullable: &[
+            "ended_at",
+            "duration_secs",
+            "notes",
+            "external_ref",
+            "tracking_code_id",
+            "deleted_at",
+            "local_date",
+            "utc_offset_minutes",
+        ],
+        // Backups written before entries recorded the day they belong to. Restoring one
+        // leaves both columns NULL, which backfill_local_dates then fills in.
+        legacy_headers: &[&[
+            "id",
+            "contract_id",
+            "started_at",
+            "ended_at",
+            "duration_secs",
+            "rate_snapshot",
+            "notes",
+            "source",
+            "external_ref",
+            "tracking_code_id",
+            "created_at",
+            "updated_at",
+            "deleted_at",
+        ]],
     },
 ];
 
@@ -167,7 +205,16 @@ pub fn backup_all_data(conn: &Connection, output_folder: &str) -> DomainResult<V
     Ok(results)
 }
 
-fn restore_rows(conn: &Connection, table: &TableSpec, rows: &[Vec<String>]) -> Result<i64, String> {
+/// `file_header` is the header row as it appeared in the CSV, which may be a legacy
+/// layout missing columns this version writes. Values are looked up by column name
+/// rather than by position, so a column the file does not carry restores as NULL
+/// instead of silently taking whatever sat at that index.
+fn restore_rows(
+    conn: &Connection,
+    table: &TableSpec,
+    file_header: &[String],
+    rows: &[Vec<String>],
+) -> Result<i64, String> {
     let placeholders = (1..=table.headers.len()).map(|i| format!("?{i}")).collect::<Vec<_>>().join(",");
     let sql = format!(
         "INSERT OR IGNORE INTO {} ({}) VALUES ({})",
@@ -182,9 +229,13 @@ fn restore_rows(conn: &Connection, table: &TableSpec, rows: &[Vec<String>]) -> R
         let values: Vec<Option<String>> = table
             .headers
             .iter()
-            .enumerate()
-            .map(|(i, header)| {
-                let raw = row.get(i).map(|s| s.as_str()).unwrap_or("");
+            .map(|header| {
+                let raw = file_header
+                    .iter()
+                    .position(|h| h == header)
+                    .and_then(|i| row.get(i))
+                    .map(|s| s.as_str())
+                    .unwrap_or("");
                 if raw.is_empty() && table.nullable.contains(header) {
                     None
                 } else {
@@ -199,6 +250,30 @@ fn restore_rows(conn: &Connection, table: &TableSpec, rows: &[Vec<String>]) -> R
     Ok(count)
 }
 
+/// Fills in the day an entry belongs to for any row that arrived without one — rows
+/// restored from a backup written before entries recorded it. Identical to what
+/// migration 0019 does to pre-existing rows, and for the same reason: an entry with a
+/// NULL `local_date` matches no period query at all, so it would be restored into the
+/// database and still be invisible on every report.
+///
+/// Like that migration this reconstructs from this machine's timezone, which is a guess
+/// for entries originally logged elsewhere. Backups written by this version carry the
+/// recorded values, so nothing is guessed for them.
+fn backfill_local_dates(conn: &Connection) -> Result<(), String> {
+    conn.execute(
+        "UPDATE time_entries
+         SET local_date = COALESCE(date(started_at, 'localtime'), substr(started_at, 1, 10)),
+             utc_offset_minutes = COALESCE(
+                 CAST(round((julianday(datetime(started_at, 'localtime')) - julianday(started_at)) * 1440) AS INTEGER),
+                 0
+             )
+         WHERE local_date IS NULL OR utc_offset_minutes IS NULL",
+        [],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// Restores from one or more CSV files previously produced by `backup_all_data` (each
 /// file's own header row identifies its data type — filenames don't need to match).
 /// Rows are inserted with their original ids preserved; a row whose id already exists
@@ -206,7 +281,7 @@ fn restore_rows(conn: &Connection, table: &TableSpec, rows: &[Vec<String>]) -> R
 /// against a database that already has some data, but it's a pure restore/merge, not a
 /// point-in-time rollback — it will never remove or modify existing rows.
 pub fn restore_from_backups(conn: &Connection, file_paths: &[String]) -> DomainResult<RestoreResult> {
-    let mut matched: Vec<(usize, Vec<Vec<String>>)> = Vec::new();
+    let mut matched: Vec<(usize, Vec<String>, Vec<Vec<String>>)> = Vec::new();
     let mut errors = Vec::new();
 
     for path_str in file_paths {
@@ -226,19 +301,23 @@ pub fn restore_from_backups(conn: &Connection, file_paths: &[String]) -> DomainR
         }
 
         let header = &rows[0];
-        match TABLES.iter().position(|t| t.headers == header.as_slice()) {
-            Some(idx) => matched.push((idx, rows[1..].to_vec())),
+        let known = TABLES.iter().position(|t| {
+            t.headers == header.as_slice() || t.legacy_headers.iter().any(|legacy| *legacy == header.as_slice())
+        });
+        match known {
+            Some(idx) => matched.push((idx, header.clone(), rows[1..].to_vec())),
             None => errors.push(format!("{label}: header doesn't match any known backup type")),
         }
     }
 
     let mut restored = Vec::new();
     for (idx, table) in TABLES.iter().enumerate() {
-        if let Some((_, rows)) = matched.iter().find(|(i, _)| *i == idx) {
-            let inserted = restore_rows(conn, table, rows)?;
+        if let Some((_, file_header, rows)) = matched.iter().find(|(i, _, _)| *i == idx) {
+            let inserted = restore_rows(conn, table, file_header, rows)?;
             restored.push(RestoreTypeCount { data_type: table.data_type.to_string(), inserted });
         }
     }
+    backfill_local_dates(conn)?;
 
     Ok(RestoreResult { restored, errors })
 }
@@ -246,6 +325,7 @@ pub fn restore_from_backups(conn: &Connection, file_paths: &[String]) -> DomainR
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::domain::contracts::{create_client, create_contract, list_clients, list_contracts};
     use crate::domain::time_entries::{create_manual_entry, list_entries, EntryFilter};
     use crate::domain::tracking_codes::create_tracking_code;
@@ -256,6 +336,101 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).expect("create temp dir");
         dir
+    }
+
+    /// A backup written before entries recorded the day they belong to must still
+    /// restore — the file is identified by its header row, so a new column would
+    /// otherwise turn every existing backup into "doesn't match any known type" — and
+    /// the restored rows must come back visible to period queries rather than sitting
+    /// in the database with a NULL day that matches nothing.
+    #[test]
+    fn a_backup_from_before_local_dates_still_restores_and_stays_queryable() {
+        let dir = temp_dir("legacy_restore");
+        let db_path = dir.join("db.sqlite");
+        let conn = crate::db::open(&db_path).expect("open db");
+        let client_id = create_client(&conn, "Legacy Client", None).expect("create client");
+        let contract_id = create_contract(&conn, client_id, "Legacy", "USD", 50.0).expect("create contract");
+
+        // A CSV in the pre-local_date layout, carrying an instant whose UTC day and
+        // local day differ west of Greenwich.
+        let legacy_header = TABLES
+            .iter()
+            .find(|t| t.table_name == "time_entries")
+            .expect("time_entries spec")
+            .legacy_headers[0];
+        let csv_path = dir.join("2026-08-24_TimeEntries_Backup.csv");
+        let row = vec![
+            "4242".to_string(),
+            contract_id.to_string(),
+            "2026-08-24T00:30:00Z".to_string(),
+            "2026-08-24T01:30:00Z".to_string(),
+            "3600".to_string(),
+            "50.0".to_string(),
+            String::new(),
+            "manual".to_string(),
+            String::new(),
+            String::new(),
+            "2026-08-24 01:30:00".to_string(),
+            "2026-08-24 01:30:00".to_string(),
+            String::new(),
+        ];
+        write_csv(&csv_path, legacy_header, &[row]).expect("write legacy csv");
+
+        let result = restore_from_backups(&conn, &[csv_path.to_string_lossy().to_string()]).expect("restore");
+
+        assert!(result.errors.is_empty(), "legacy header should be recognised: {:?}", result.errors);
+        assert_eq!(result.restored.iter().map(|r| r.inserted).sum::<i64>(), 1);
+
+        // The backfill ran, and the restored entry is reachable by a day-bounded query.
+        let (local_date, offset): (String, i32) = conn
+            .query_row("SELECT local_date, utc_offset_minutes FROM time_entries WHERE id = 4242", [], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })
+            .expect("restored row");
+        let expected = chrono::DateTime::parse_from_rfc3339("2026-08-24T00:30:00Z")
+            .unwrap()
+            .with_timezone(&Local);
+        assert_eq!(local_date, expected.date_naive().format("%Y-%m-%d").to_string());
+        assert_eq!(offset, chrono::Offset::fix(expected.offset()).local_minus_utc() / 60);
+
+        let found = list_entries(
+            &conn,
+            &EntryFilter { contract_id: Some(contract_id), from: Some(local_date.clone()), to: Some(local_date) },
+        )
+        .expect("list entries");
+        assert!(found.iter().any(|e| e.id == 4242), "restored entry must match a day-bounded query");
+    }
+
+    /// Backups this version writes carry the recorded day, and restoring one must use
+    /// those values rather than reconstructing them from the local timezone.
+    #[test]
+    fn a_current_backup_round_trips_the_recorded_day() {
+        let source_dir = temp_dir("roundtrip_day_src");
+        let source = crate::db::open(&source_dir.join("db.sqlite")).expect("open source db");
+        let client_id = create_client(&source, "Client", None).expect("create client");
+        let contract_id = create_contract(&source, client_id, "Contract", "USD", 50.0).expect("create contract");
+        let entry_id = create_manual_entry(&source, contract_id, "2026-08-24T00:30:00Z", "2026-08-24T01:30:00Z", None, None)
+            .expect("create entry");
+        let original: (String, i32) = source
+            .query_row("SELECT local_date, utc_offset_minutes FROM time_entries WHERE id = ?1", [entry_id], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })
+            .expect("original day");
+
+        let out_dir = temp_dir("roundtrip_day_out");
+        let files = backup_all_data(&source, out_dir.to_str().unwrap()).expect("backup");
+        let paths: Vec<String> = files.iter().map(|f| f.path.clone()).collect();
+
+        let dest_dir = temp_dir("roundtrip_day_dest");
+        let dest = crate::db::open(&dest_dir.join("db.sqlite")).expect("open dest db");
+        restore_from_backups(&dest, &paths).expect("restore");
+
+        let restored: (String, i32) = dest
+            .query_row("SELECT local_date, utc_offset_minutes FROM time_entries WHERE id = ?1", [entry_id], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })
+            .expect("restored day");
+        assert_eq!(restored, original);
     }
 
     #[test]

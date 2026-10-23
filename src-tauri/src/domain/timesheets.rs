@@ -6,7 +6,7 @@ use rusqlite::{params, Connection};
 use rust_xlsxwriter::{Format, Workbook};
 use serde::Serialize;
 
-use super::period::{parse_weekday, resolve_period, to_rfc3339_bounds};
+use super::period::{parse_weekday, resolve_period, to_local_date_bounds};
 use super::DomainResult;
 
 /// Which file format "Create Timesheet" writes, driven by the user profile's Output
@@ -146,7 +146,7 @@ fn fetch_contract_entries(conn: &Connection, contract_id: i64, from: &str, to: &
             "SELECT te.started_at, te.ended_at, te.duration_secs, te.rate_snapshot, te.notes, tc.code
              FROM time_entries te LEFT JOIN tracking_codes tc ON tc.id = te.tracking_code_id
              WHERE te.contract_id = ?1 AND te.deleted_at IS NULL
-               AND te.started_at >= ?2 AND te.started_at <= ?3
+               AND te.local_date >= ?2 AND te.local_date <= ?3
              ORDER BY te.started_at",
         )
         .map_err(|e| e.to_string())?;
@@ -411,7 +411,6 @@ pub fn generate_timesheets(
     client_id: Option<i64>,
     contract_id: Option<i64>,
     output_type: &str,
-    utc_offset_minutes: i32,
 ) -> DomainResult<Vec<TimesheetFile>> {
     let reference: NaiveDate = reference_date.parse().map_err(|e| format!("invalid date: {e}"))?;
     let format = TimesheetFormat::from_output_type(output_type);
@@ -426,7 +425,6 @@ pub fn generate_timesheets(
             include_rate_amount,
             contract_id,
             format,
-            utc_offset_minutes,
         );
     }
 
@@ -448,7 +446,6 @@ pub fn generate_timesheets(
             id,
             &mut used_names,
             format,
-            utc_offset_minutes,
         )?);
     }
     Ok(results)
@@ -464,7 +461,6 @@ fn generate_single_contract_timesheet(
     include_rate_amount: bool,
     contract_id: i64,
     format: TimesheetFormat,
-    utc_offset_minutes: i32,
 ) -> DomainResult<Vec<TimesheetFile>> {
     let Some(contract) = fetch_active_contracts(conn, Some(contract_id), None)?.into_iter().next() else {
         return Ok(Vec::new());
@@ -472,7 +468,7 @@ fn generate_single_contract_timesheet(
 
     let (start, end) =
         resolve_period(period, reference, parse_weekday(&contract.week_start), parse_weekday(&contract.week_end));
-    let (from, to) = to_rfc3339_bounds(start, end, utc_offset_minutes);
+    let (from, to) = to_local_date_bounds(start, end);
     let entries = fetch_contract_entries(conn, contract.id, &from, &to)?;
     if entries.is_empty() {
         return Ok(Vec::new());
@@ -526,7 +522,6 @@ fn generate_combined_client_timesheet(
     client_id: i64,
     used_names: &mut HashSet<String>,
     format: TimesheetFormat,
-    utc_offset_minutes: i32,
 ) -> DomainResult<Vec<TimesheetFile>> {
     let contracts = fetch_active_contracts(conn, None, Some(client_id))?;
     let Some(first) = contracts.first() else {
@@ -536,7 +531,7 @@ fn generate_combined_client_timesheet(
 
     let (start, end) =
         resolve_period(period, reference, parse_weekday(&first.week_start), parse_weekday(&first.week_end));
-    let (from, to) = to_rfc3339_bounds(start, end, utc_offset_minutes);
+    let (from, to) = to_local_date_bounds(start, end);
 
     let mut groups = Vec::new();
     for contract in &contracts {
@@ -641,7 +636,6 @@ mod tests {
             Some(client_id),
             None,
             "xlsx",
-            0,
         )
         .expect("generate timesheets");
 
@@ -697,7 +691,6 @@ mod tests {
             None,
             Some(contract_id),
             "xlsx",
-            0,
         )
         .expect("generate timesheets");
 
@@ -760,7 +753,6 @@ mod tests {
             None,
             None,
             "xlsx",
-            0,
         )
         .expect("generate timesheets");
 
@@ -801,7 +793,6 @@ mod tests {
             None,
             Some(contract_id),
             "csv",
-            0,
         )
         .expect("generate timesheets");
 
@@ -854,7 +845,6 @@ mod tests {
             None,
             Some(contract_id),
             "xlsx",
-            0,
         )
         .expect("generate timesheets");
 

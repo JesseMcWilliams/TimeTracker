@@ -60,23 +60,15 @@ pub fn year_range(reference: NaiveDate) -> (NaiveDate, NaiveDate) {
     (start, end)
 }
 
-/// Converts an inclusive date range into RFC3339 UTC bounds comparable against
-/// `started_at` timestamps (which are stored as UTC RFC3339 strings).
+/// Renders an inclusive date range as the two `YYYY-MM-DD` strings that bound a query
+/// against `time_entries.local_date`.
 ///
-/// The range is anchored to midnight in the user's own timezone, not UTC.
-/// `utc_offset_minutes` is their offset east of UTC (UTC-5 passes -300), and the local
-/// wall-clock bounds are shifted back by it to land on the right UTC instants.
-/// Anchoring at UTC midnight instead — as this did before — files an entry under the
-/// neighbouring period whenever local and UTC midnight fall on different dates, e.g. an
-/// 8pm Sunday entry in UTC-5 stored as 01:00Z Monday.
-pub fn to_rfc3339_bounds(start: NaiveDate, end: NaiveDate, utc_offset_minutes: i32) -> (String, String) {
-    let offset = Duration::minutes(utc_offset_minutes as i64);
-    let from = start.and_hms_opt(0, 0, 0).expect("midnight is a valid time") - offset;
-    let to = end.and_hms_opt(23, 59, 59).expect("23:59:59 is a valid time") - offset;
-    (
-        format!("{}Z", from.format("%Y-%m-%dT%H:%M:%S")),
-        format!("{}Z", to.format("%Y-%m-%dT%H:%M:%S")),
-    )
+/// Both sides are plain calendar dates, so the comparison is a string range over an
+/// indexed column with no timezone arithmetic at all. Entries carry the day they belong
+/// to, decided when they were written (see `time_entries::local_day_of`), which is why
+/// this no longer needs to know anything about who is asking or where they are.
+pub fn to_local_date_bounds(start: NaiveDate, end: NaiveDate) -> (String, String) {
+    (start.format("%Y-%m-%d").to_string(), end.format("%Y-%m-%d").to_string())
 }
 
 /// The calendar week (Mon-Sun) immediately before the one containing `reference`.
@@ -138,71 +130,54 @@ pub fn resolve_period(
 mod tests {
     use super::*;
 
-    /// Minutes east of UTC for US Eastern Daylight Time, the offset that exposed the
-    /// original bug: local midnight there is 04:00Z the same day.
-    const UTC_MINUS_4: i32 = -240;
-
     #[test]
-    fn a_zero_offset_anchors_the_range_to_utc_midnight() {
+    fn bounds_are_the_plain_calendar_dates() {
         let start = NaiveDate::from_ymd_opt(2026, 8, 17).unwrap();
         let end = NaiveDate::from_ymd_opt(2026, 8, 23).unwrap();
 
-        let (from, to) = to_rfc3339_bounds(start, end, 0);
+        let (from, to) = to_local_date_bounds(start, end);
 
-        assert_eq!(from, "2026-08-17T00:00:00Z");
-        assert_eq!(to, "2026-08-23T23:59:59Z");
+        assert_eq!(from, "2026-08-17");
+        assert_eq!(to, "2026-08-23");
+    }
+
+    /// The bounds are compared as strings against an indexed TEXT column, so they have
+    /// to be zero-padded — "2026-8-7" would sort wrongly against "2026-08-17".
+    #[test]
+    fn single_digit_months_and_days_are_zero_padded() {
+        let day = NaiveDate::from_ymd_opt(2026, 8, 7).unwrap();
+
+        let (from, to) = to_local_date_bounds(day, day);
+
+        assert_eq!(from, "2026-08-07");
+        assert_eq!(to, "2026-08-07");
     }
 
     #[test]
-    fn a_western_offset_shifts_the_range_later_in_utc() {
-        let start = NaiveDate::from_ymd_opt(2026, 8, 17).unwrap();
-        let end = NaiveDate::from_ymd_opt(2026, 8, 23).unwrap();
+    fn a_single_day_range_has_identical_bounds() {
+        let day = NaiveDate::from_ymd_opt(2026, 1, 1).unwrap();
 
-        let (from, to) = to_rfc3339_bounds(start, end, UTC_MINUS_4);
+        let (from, to) = to_local_date_bounds(day, day);
 
-        assert_eq!(from, "2026-08-17T04:00:00Z", "local midnight in UTC-4 is 04:00Z");
-        assert_eq!(to, "2026-08-24T03:59:59Z", "the local day ends after UTC rolls over");
+        assert_eq!(from, to, "an inclusive one-day range covers exactly that day");
     }
 
+    /// String comparison has to agree with calendar order for the BETWEEN to mean what
+    /// it reads like, including across month and year boundaries.
     #[test]
-    fn an_eastern_offset_shifts_the_range_earlier_in_utc() {
-        let start = NaiveDate::from_ymd_opt(2026, 8, 17).unwrap();
-        let end = NaiveDate::from_ymd_opt(2026, 8, 23).unwrap();
+    fn bounds_sort_in_calendar_order_as_strings() {
+        let dates = [
+            NaiveDate::from_ymd_opt(2025, 12, 31).unwrap(),
+            NaiveDate::from_ymd_opt(2026, 1, 1).unwrap(),
+            NaiveDate::from_ymd_opt(2026, 1, 9).unwrap(),
+            NaiveDate::from_ymd_opt(2026, 1, 10).unwrap(),
+            NaiveDate::from_ymd_opt(2026, 2, 1).unwrap(),
+        ];
 
-        let (from, to) = to_rfc3339_bounds(start, end, 120);
+        let rendered: Vec<String> = dates.iter().map(|d| to_local_date_bounds(*d, *d).0).collect();
+        let mut sorted = rendered.clone();
+        sorted.sort();
 
-        assert_eq!(from, "2026-08-16T22:00:00Z", "local midnight in UTC+2 is 22:00Z the day before");
-        assert_eq!(to, "2026-08-23T21:59:59Z");
-    }
-
-    /// The regression this change exists for: an entry logged at 8pm local on the last
-    /// day of a week lands at 00:00Z the next day, which the old UTC-midnight bounds
-    /// pushed out of the period entirely.
-    #[test]
-    fn a_late_evening_entry_on_the_final_local_day_stays_inside_the_range() {
-        let start = NaiveDate::from_ymd_opt(2026, 8, 17).unwrap();
-        let end = NaiveDate::from_ymd_opt(2026, 8, 23).unwrap();
-        let logged_at = "2026-08-24T00:00:00Z"; // 8pm Sunday, UTC-4
-
-        let (from, to) = to_rfc3339_bounds(start, end, UTC_MINUS_4);
-        assert!(logged_at >= from.as_str() && logged_at <= to.as_str());
-
-        let (old_from, old_to) = to_rfc3339_bounds(start, end, 0);
-        assert!(
-            !(logged_at >= old_from.as_str() && logged_at <= old_to.as_str()),
-            "UTC-anchored bounds are what dropped this entry from the period"
-        );
-    }
-
-    /// Offsets that are not whole hours (India is UTC+5:30) must shift by the exact
-    /// minute count, not a rounded hour.
-    #[test]
-    fn a_half_hour_offset_shifts_by_the_exact_minutes() {
-        let day = NaiveDate::from_ymd_opt(2026, 8, 17).unwrap();
-
-        let (from, to) = to_rfc3339_bounds(day, day, 330);
-
-        assert_eq!(from, "2026-08-16T18:30:00Z");
-        assert_eq!(to, "2026-08-17T18:29:59Z");
+        assert_eq!(rendered, sorted);
     }
 }

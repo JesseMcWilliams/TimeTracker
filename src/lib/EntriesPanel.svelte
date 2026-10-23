@@ -23,7 +23,7 @@
     formatHours,
     formatMoney,
     roundToNearest5Minutes,
-    startOfDay,
+    toLocalDateString,
     payWeekRange,
     shiftWeeks,
   } from './dateUtils'
@@ -51,17 +51,22 @@
     '3months': 90,
   }
 
+  function daysAgo(days: number): Date {
+    const d = new Date()
+    d.setDate(d.getDate() - days)
+    return d
+  }
+
+  /** Inclusive `YYYY-MM-DD` bounds. Entries record the day they belong to, so these are
+   * calendar days rather than instants — no timezone conversion anywhere in the path. */
   function periodRange(period: EntriesFilterPeriod): { from?: string; to?: string } {
     if (period === 'all') return {}
-    if (period === 'today') {
-      const from = startOfDay(new Date())
-      const to = new Date(from.getTime() + 24 * 60 * 60 * 1000 - 1)
-      return { from: from.toISOString(), to: to.toISOString() }
-    }
+
+    const today = toLocalDateString(new Date())
+    if (period === 'today') return { from: today, to: today }
     if (period === 'yesterday') {
-      const to = new Date(startOfDay(new Date()).getTime() - 1)
-      const from = startOfDay(to)
-      return { from: from.toISOString(), to: to.toISOString() }
+      const yesterday = toLocalDateString(daysAgo(1))
+      return { from: yesterday, to: yesterday }
     }
 
     // The week options follow whole pay periods, not a rolling N days back, so "last
@@ -74,11 +79,10 @@
           : period === 'lastweek'
             ? shiftWeeks(thisWeek, 1)
             : shiftWeeks(thisWeek, 2, 2)
-      return { from: range.from.toISOString(), to: range.to.toISOString() }
+      return { from: toLocalDateString(range.from), to: toLocalDateString(range.to) }
     }
 
-    const from = new Date(Date.now() - PERIOD_DAYS[period] * 24 * 60 * 60 * 1000).toISOString()
-    return { from }
+    return { from: toLocalDateString(daysAgo(PERIOD_DAYS[period])) }
   }
 
   async function loadEntries() {

@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local, Offset, Utc};
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 
@@ -27,12 +27,27 @@ pub struct TimeEntry {
 #[serde(rename_all = "camelCase")]
 pub struct EntryFilter {
     pub contract_id: Option<i64>,
+    /// Inclusive `YYYY-MM-DD` bounds on the day an entry belongs to, not on the instant
+    /// it started — "today" means the caller's today, which is what `local_date` records.
     pub from: Option<String>,
     pub to: Option<String>,
 }
 
 fn now_iso() -> String {
     Utc::now().to_rfc3339()
+}
+
+/// The calendar day an entry belongs to, plus the offset east of UTC that decided it.
+///
+/// Both are stored on the row and never recomputed: `started_at` is a UTC instant, and
+/// turning it into a day is a question only the timezone at the moment of recording can
+/// answer. Deriving it later from whoever happens to be looking lets an entry drift into
+/// a different week just because the app was opened from a different timezone.
+pub(crate) fn local_day_of(started_at: &str) -> DomainResult<(String, i32)> {
+    let instant = DateTime::parse_from_rfc3339(started_at).map_err(|e| format!("invalid timestamp: {e}"))?;
+    let local = instant.with_timezone(&Local);
+    let offset_minutes = local.offset().fix().local_minus_utc() / 60;
+    Ok((local.date_naive().format("%Y-%m-%d").to_string(), offset_minutes))
 }
 
 fn duration_between(started_at: &str, ended_at: &str) -> DomainResult<i64> {
@@ -88,10 +103,12 @@ pub fn start_timer(
     validate_tracking_code(conn, contract_id, tracking_code_id)?;
     let rate = current_rate(conn, contract_id)?;
     let started_at = now_iso();
+    let (local_date, utc_offset_minutes) = local_day_of(&started_at)?;
     conn.execute(
-        "INSERT INTO time_entries (contract_id, started_at, rate_snapshot, notes, source, tracking_code_id)
-         VALUES (?1, ?2, ?3, ?4, 'timer', ?5)",
-        params![contract_id, started_at, rate, notes, tracking_code_id],
+        "INSERT INTO time_entries (contract_id, started_at, rate_snapshot, notes, source, tracking_code_id,
+            local_date, utc_offset_minutes)
+         VALUES (?1, ?2, ?3, ?4, 'timer', ?5, ?6, ?7)",
+        params![contract_id, started_at, rate, notes, tracking_code_id, local_date, utc_offset_minutes],
     )
     .map_err(|e| e.to_string())?;
     Ok(conn.last_insert_rowid())
@@ -154,11 +171,24 @@ pub(crate) fn create_entry_with_source(
     validate_tracking_code(conn, contract_id, tracking_code_id)?;
     let rate = current_rate(conn, contract_id)?;
     let duration_secs = compute_duration_secs(conn, contract_id, started_at, ended_at)?;
+    let (local_date, utc_offset_minutes) = local_day_of(started_at)?;
 
     conn.execute(
-        "INSERT INTO time_entries (contract_id, started_at, ended_at, duration_secs, rate_snapshot, notes, source, tracking_code_id)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-        params![contract_id, started_at, ended_at, duration_secs, rate, notes, source, tracking_code_id],
+        "INSERT INTO time_entries (contract_id, started_at, ended_at, duration_secs, rate_snapshot, notes, source,
+            tracking_code_id, local_date, utc_offset_minutes)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        params![
+            contract_id,
+            started_at,
+            ended_at,
+            duration_secs,
+            rate,
+            notes,
+            source,
+            tracking_code_id,
+            local_date,
+            utc_offset_minutes
+        ],
     )
     .map_err(|e| e.to_string())?;
     Ok(conn.last_insert_rowid())
@@ -186,11 +216,24 @@ pub fn update_entry(
     validate_tracking_code(conn, contract_id, tracking_code_id)?;
 
     let duration_secs = compute_duration_secs(conn, contract_id, started_at, ended_at)?;
+    // Editing the start time can move the entry to a different day, so the stored day is
+    // recomputed here rather than left pointing at where the entry used to be.
+    let (local_date, utc_offset_minutes) = local_day_of(started_at)?;
     conn.execute(
         "UPDATE time_entries
-         SET started_at = ?1, ended_at = ?2, duration_secs = ?3, notes = ?4, tracking_code_id = ?5, updated_at = datetime('now')
-         WHERE id = ?6",
-        params![started_at, ended_at, duration_secs, notes, tracking_code_id, entry_id],
+         SET started_at = ?1, ended_at = ?2, duration_secs = ?3, notes = ?4, tracking_code_id = ?5,
+             local_date = ?6, utc_offset_minutes = ?7, updated_at = datetime('now')
+         WHERE id = ?8",
+        params![
+            started_at,
+            ended_at,
+            duration_secs,
+            notes,
+            tracking_code_id,
+            local_date,
+            utc_offset_minutes,
+            entry_id
+        ],
     )
     .map_err(|e| e.to_string())?;
     Ok(())
@@ -258,11 +301,11 @@ pub fn list_entries(conn: &Connection, filter: &EntryFilter) -> DomainResult<Vec
         sql_params.push(Box::new(contract_id));
     }
     if let Some(from) = &filter.from {
-        sql.push_str(" AND te.started_at >= ?");
+        sql.push_str(" AND te.local_date >= ?");
         sql_params.push(Box::new(from.clone()));
     }
     if let Some(to) = &filter.to {
-        sql.push_str(" AND te.started_at <= ?");
+        sql.push_str(" AND te.local_date <= ?");
         sql_params.push(Box::new(to.clone()));
     }
     sql.push_str(" ORDER BY te.started_at DESC");
@@ -278,13 +321,139 @@ pub fn list_entries(conn: &Connection, filter: &EntryFilter) -> DomainResult<Vec
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::domain::contracts::{create_client, create_contract, update_client};
+    use chrono::Duration;
     use std::fs;
 
     fn temp_db(name: &str) -> Connection {
         let path = std::env::temp_dir().join(format!("timetracker_test_te_{}_{name}.sqlite", std::process::id()));
         let _ = fs::remove_file(&path);
         crate::db::open(&path).expect("open db")
+    }
+
+    /// The local day of a UTC instant, as this machine reckons it. A test asserting a
+    /// literal date would only hold in one timezone, so these assert the relationship
+    /// between the stored instant and the stored day instead.
+    fn expected_local_day(iso: &str) -> (String, i32) {
+        let local = DateTime::parse_from_rfc3339(iso).expect("valid timestamp").with_timezone(&Local);
+        (local.date_naive().format("%Y-%m-%d").to_string(), local.offset().fix().local_minus_utc() / 60)
+    }
+
+    fn stored_day(conn: &Connection, entry_id: i64) -> (String, i32) {
+        conn.query_row(
+            "SELECT local_date, utc_offset_minutes FROM time_entries WHERE id = ?1",
+            params![entry_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("read stored day")
+    }
+
+    #[test]
+    fn local_day_of_reports_the_day_and_the_offset_that_decided_it() {
+        let iso = "2026-08-24T12:00:00Z";
+
+        assert_eq!(local_day_of(iso).expect("resolve local day"), expected_local_day(iso));
+    }
+
+    #[test]
+    fn local_day_of_rejects_a_timestamp_it_cannot_parse() {
+        assert!(local_day_of("not a timestamp").is_err());
+    }
+
+    /// An instant just after UTC midnight is the previous day west of Greenwich and the
+    /// same day east of it. Either way the stored day must match what the clock on the
+    /// wall said, which is the whole point of storing it.
+    #[test]
+    fn an_entry_just_after_utc_midnight_is_filed_under_the_local_day() {
+        let conn = temp_db("utc_midnight_edge");
+        let client_id = create_client(&conn, "Client", None).expect("create client");
+        let contract_id = create_contract(&conn, client_id, "Contract", "USD", 50.0).expect("create contract");
+
+        let started = "2026-08-24T00:30:00Z";
+        let entry_id = create_manual_entry(&conn, contract_id, started, "2026-08-24T01:30:00Z", None, None)
+            .expect("create entry");
+
+        let (local_date, offset) = stored_day(&conn, entry_id);
+        assert_eq!((local_date.clone(), offset), expected_local_day(started));
+
+        // The two stored values agree: applying the stored offset to the stored instant
+        // lands on the stored day.
+        let shifted = DateTime::parse_from_rfc3339(started).unwrap().naive_utc() + Duration::minutes(offset as i64);
+        assert_eq!(shifted.format("%Y-%m-%d").to_string(), local_date);
+    }
+
+    #[test]
+    fn a_started_timer_records_the_day_it_started_on() {
+        let conn = temp_db("timer_day");
+        let client_id = create_client(&conn, "Client", None).expect("create client");
+        let contract_id = create_contract(&conn, client_id, "Contract", "USD", 50.0).expect("create contract");
+
+        let entry_id = start_timer(&conn, contract_id, None, None).expect("start timer");
+
+        let started_at: String = conn
+            .query_row("SELECT started_at FROM time_entries WHERE id = ?1", params![entry_id], |r| r.get(0))
+            .expect("read started_at");
+        assert_eq!(stored_day(&conn, entry_id), expected_local_day(&started_at));
+    }
+
+    /// Moving an entry to another day has to move which period it bills to, otherwise
+    /// the stored day still points at where the entry used to be.
+    #[test]
+    fn editing_the_start_time_moves_the_stored_day() {
+        let conn = temp_db("edit_moves_day");
+        let client_id = create_client(&conn, "Client", None).expect("create client");
+        let contract_id = create_contract(&conn, client_id, "Contract", "USD", 50.0).expect("create contract");
+
+        let entry_id = create_manual_entry(&conn, contract_id, "2026-08-24T18:00:00Z", "2026-08-24T19:00:00Z", None, None)
+            .expect("create entry");
+        let before = stored_day(&conn, entry_id).0;
+
+        let moved = "2026-09-02T18:00:00Z";
+        update_entry(&conn, entry_id, moved, "2026-09-02T19:00:00Z", None, None).expect("update entry");
+
+        let after = stored_day(&conn, entry_id).0;
+        assert_ne!(after, before);
+        assert_eq!(after, expected_local_day(moved).0);
+    }
+
+    /// Editing only notes must not disturb the day — update_entry_metadata leaves the
+    /// time range alone, so it has no business touching what that range implied.
+    #[test]
+    fn editing_only_metadata_leaves_the_stored_day_alone() {
+        let conn = temp_db("metadata_keeps_day");
+        let client_id = create_client(&conn, "Client", None).expect("create client");
+        let contract_id = create_contract(&conn, client_id, "Contract", "USD", 50.0).expect("create contract");
+
+        let entry_id = create_manual_entry(&conn, contract_id, "2026-08-24T18:00:00Z", "2026-08-24T19:00:00Z", None, None)
+            .expect("create entry");
+        let before = stored_day(&conn, entry_id);
+
+        update_entry_metadata(&conn, entry_id, Some("a note"), None).expect("update metadata");
+
+        assert_eq!(stored_day(&conn, entry_id), before);
+    }
+
+    /// Every entry must carry a day. A NULL would drop out of every period query
+    /// silently, which is the failure mode this column exists to remove.
+    #[test]
+    fn no_entry_is_ever_written_without_a_day() {
+        let conn = temp_db("no_null_days");
+        let client_id = create_client(&conn, "Client", None).expect("create client");
+        let contract_id = create_contract(&conn, client_id, "Contract", "USD", 50.0).expect("create contract");
+
+        create_manual_entry(&conn, contract_id, "2026-08-24T18:00:00Z", "2026-08-24T19:00:00Z", None, None)
+            .expect("create manual entry");
+        start_timer(&conn, contract_id, None, None).expect("start timer");
+
+        let nulls: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM time_entries WHERE local_date IS NULL OR utc_offset_minutes IS NULL",
+                [],
+                |row| row.get(0),
+            )
+            .expect("count nulls");
+        assert_eq!(nulls, 0);
     }
 
     #[test]
