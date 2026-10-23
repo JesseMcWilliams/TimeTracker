@@ -49,10 +49,18 @@ pub struct Report {
 /// needs one consistent window. Per-client week boundaries are honored instead in
 /// per-contract timesheet generation (see `timesheets::generate_timesheets`). Supports
 /// "week", "month", and "year" periods (see `period::resolve_period`).
-pub fn generate_report(conn: &Connection, period: &str, reference_date: &str) -> DomainResult<Report> {
+///
+/// `utc_offset_minutes` is the caller's offset east of UTC, used to anchor the period
+/// to local rather than UTC midnight (see `period::to_rfc3339_bounds`).
+pub fn generate_report(
+    conn: &Connection,
+    period: &str,
+    reference_date: &str,
+    utc_offset_minutes: i32,
+) -> DomainResult<Report> {
     let reference: NaiveDate = reference_date.parse().map_err(|e| format!("invalid date: {e}"))?;
     let (start, end) = resolve_period(period, reference, Weekday::Mon, Weekday::Sun);
-    let (from, to) = to_rfc3339_bounds(start, end);
+    let (from, to) = to_rfc3339_bounds(start, end, utc_offset_minutes);
 
     let mut stmt = conn
         .prepare(
@@ -185,7 +193,7 @@ mod tests {
         create_manual_entry(&conn, worked_contract, "2026-08-24T09:00:00Z", "2026-08-24T10:00:00Z", None, None)
             .expect("create entry");
 
-        let report = generate_report(&conn, "week", "2026-08-24").expect("generate report");
+        let report = generate_report(&conn, "week", "2026-08-24", 0).expect("generate report");
 
         assert_eq!(report.clients.len(), 1, "only the worked contract's client appears in the normal breakdown");
         assert_eq!(report.contracts_without_time.len(), 1);
@@ -199,7 +207,7 @@ mod tests {
         let archived_contract = create_contract(&conn, client_id, "Retired", "USD", 50.0).expect("create contract");
         archive_contract(&conn, archived_contract).expect("archive contract");
 
-        let report = generate_report(&conn, "week", "2026-08-24").expect("generate report");
+        let report = generate_report(&conn, "week", "2026-08-24", 0).expect("generate report");
 
         assert!(report.contracts_without_time.is_empty(), "archived contracts should not be flagged as idle");
     }

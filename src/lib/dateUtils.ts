@@ -21,6 +21,14 @@ export function roundToNearest5Minutes(datetimeLocal: string): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
+/** This machine's current offset east of UTC, in minutes — the sign convention the
+ * backend's date-range bounds expect (UTC-5 is -300). `getTimezoneOffset` reports the
+ * opposite sign, hence the negation. Read per call so it stays right across a DST
+ * change without a restart. */
+export function utcOffsetMinutes(): number {
+  return -new Date().getTimezoneOffset()
+}
+
 export function formatDateTime(iso: string): string {
   return new Date(iso).toLocaleString()
 }

@@ -2,7 +2,7 @@ use chrono::NaiveDate;
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 
-use super::period::resolve_date_range_preset;
+use super::period::{resolve_date_range_preset, to_rfc3339_bounds};
 use super::DomainResult;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -168,13 +168,18 @@ fn format_body(notes: Option<&str>, date_label: &str, contracts: &[IdleContract]
 
 /// Builds the subject/body for a template's "no time logged" email as of `reference_date`
 /// (YYYY-MM-DD). The app never sends this itself — the caller copies it or hands it to
-/// the user's own mail client.
-pub fn generate_no_time_email(conn: &Connection, template_id: i64, reference_date: &str) -> DomainResult<NoTimeEmailPreview> {
+/// the user's own mail client. `utc_offset_minutes` is the caller's offset east of UTC,
+/// so the range covers local rather than UTC days.
+pub fn generate_no_time_email(
+    conn: &Connection,
+    template_id: i64,
+    reference_date: &str,
+    utc_offset_minutes: i32,
+) -> DomainResult<NoTimeEmailPreview> {
     let template = get_email_template(conn, template_id)?;
     let reference: NaiveDate = reference_date.parse().map_err(|e| format!("invalid date: {e}"))?;
     let (start, end) = resolve_date_range_preset(&template.date_range, reference)?;
-    let from = format!("{}T00:00:00Z", start.format("%Y-%m-%d"));
-    let to = format!("{}T23:59:59Z", end.format("%Y-%m-%d"));
+    let (from, to) = to_rfc3339_bounds(start, end, utc_offset_minutes);
 
     let contracts = idle_contracts(conn, &from, &to, template.contract_id)?;
     let date_label = format!("{} to {}", start.format("%Y-%m-%d"), end.format("%Y-%m-%d"));
@@ -217,7 +222,7 @@ mod tests {
         let template_id = create_email_template(&conn, "Weekly check", None, None, Some("me@example.com"), None, "previous_week")
             .expect("create template");
 
-        let preview = generate_no_time_email(&conn, template_id, "2026-08-24").expect("generate email");
+        let preview = generate_no_time_email(&conn, template_id, "2026-08-24", 0).expect("generate email");
 
         assert_eq!(preview.to.as_deref(), Some("me@example.com"));
         assert_eq!(preview.contracts.len(), 1);
@@ -236,7 +241,7 @@ mod tests {
         let template_id =
             create_email_template(&conn, "Just target", None, None, None, Some(target), "previous_week").expect("create template");
 
-        let preview = generate_no_time_email(&conn, template_id, "2026-08-24").expect("generate email");
+        let preview = generate_no_time_email(&conn, template_id, "2026-08-24", 0).expect("generate email");
 
         assert_eq!(preview.contracts.len(), 1);
         assert_eq!(preview.contracts[0].contract_id, target);
@@ -253,7 +258,7 @@ mod tests {
         let template_id =
             create_email_template(&conn, "All clear", None, None, None, None, "previous_week").expect("create template");
 
-        let preview = generate_no_time_email(&conn, template_id, "2026-08-24").expect("generate email");
+        let preview = generate_no_time_email(&conn, template_id, "2026-08-24", 0).expect("generate email");
 
         assert!(preview.contracts.is_empty());
         assert!(preview.body.contains("No contracts without logged time"));
@@ -276,7 +281,7 @@ mod tests {
         )
         .expect("create template");
 
-        let preview = generate_no_time_email(&conn, template_id, "2026-08-24").expect("generate email");
+        let preview = generate_no_time_email(&conn, template_id, "2026-08-24", 0).expect("generate email");
 
         assert!(preview.body.starts_with("Please follow up with these clients."));
     }

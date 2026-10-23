@@ -345,9 +345,14 @@ fn require_output_folder(conn: &rusqlite::Connection) -> CmdResult<String> {
 }
 
 #[tauri::command]
-pub fn generate_report(state: State<AppState>, period: String, reference_date: String) -> CmdResult<Report> {
+pub fn generate_report(
+    state: State<AppState>,
+    period: String,
+    reference_date: String,
+    utc_offset_minutes: i32,
+) -> CmdResult<Report> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
-    reports::generate_report(&conn, &period, &reference_date)
+    reports::generate_report(&conn, &period, &reference_date, utc_offset_minutes)
 }
 
 #[tauri::command]
@@ -359,6 +364,7 @@ pub fn generate_timesheets(
     include_rate_amount: bool,
     client_id: Option<i64>,
     contract_id: Option<i64>,
+    utc_offset_minutes: i32,
 ) -> CmdResult<Vec<TimesheetFile>> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
     let profile = user_profile::get_user_profile(&conn)?;
@@ -381,6 +387,7 @@ pub fn generate_timesheets(
         client_id,
         contract_id,
         &profile.output_type,
+        utc_offset_minutes,
     )
 }
 
@@ -598,7 +605,8 @@ pub fn generate_no_time_email(
     state: State<AppState>,
     template_id: i64,
     reference_date: String,
+    utc_offset_minutes: i32,
 ) -> CmdResult<NoTimeEmailPreview> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
-    email_templates::generate_no_time_email(&conn, template_id, &reference_date)
+    email_templates::generate_no_time_email(&conn, template_id, &reference_date, utc_offset_minutes)
 }
