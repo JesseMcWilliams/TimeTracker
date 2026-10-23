@@ -1,6 +1,7 @@
 <script lang="ts">
   import { api } from './api'
-  import { store, activeClients, activeContracts, refreshContracts } from './store.svelte'
+  import { store, activeClients, activeContracts, hasHoursBudget, remainingHours, refreshContracts } from './store.svelte'
+  import { formatHours } from './dateUtils'
 
   let { onSelectContract }: { onSelectContract: (contractId: number) => void } = $props()
 
@@ -12,7 +13,7 @@
   let showRate = $state(false)
   let filterText = $state('')
 
-  type SortColumn = 'client' | 'contract' | 'currency' | 'rate'
+  type SortColumn = 'client' | 'contract' | 'currency' | 'rate' | 'hours' | 'remaining'
   let sortColumn = $state<SortColumn>('client')
   let sortDir = $state<'asc' | 'desc'>('asc')
 
@@ -57,6 +58,14 @@
           break
         case 'rate':
           cmp = (a.currentRate ?? -Infinity) - (b.currentRate ?? -Infinity)
+          break
+        // Contracts with no budget sort below every budgeted one in either direction,
+        // since "not set" is not a quantity to rank against real hour counts.
+        case 'hours':
+          cmp = (hasHoursBudget(a) ? a.totalHoursBudgeted : -Infinity) - (hasHoursBudget(b) ? b.totalHoursBudgeted : -Infinity)
+          break
+        case 'remaining':
+          cmp = (hasHoursBudget(a) ? remainingHours(a) : -Infinity) - (hasHoursBudget(b) ? remainingHours(b) : -Infinity)
           break
       }
       return sortDir === 'asc' ? cmp : -cmp
@@ -114,12 +123,14 @@
         {#if showRate}
           <th class="sortable" onclick={() => sortBy('rate')}>Rate{sortIndicator('rate')}</th>
         {/if}
+        <th class="sortable numeric" onclick={() => sortBy('hours')}>Total Hrs{sortIndicator('hours')}</th>
+        <th class="sortable numeric" onclick={() => sortBy('remaining')}>Remaining{sortIndicator('remaining')}</th>
         <th>Notes</th>
       </tr>
     </thead>
     <tbody>
       {#if sortedContracts.length === 0}
-        <tr><td colspan={showRate ? 5 : 4} class="muted">No contracts match this filter.</td></tr>
+        <tr><td colspan={showRate ? 7 : 6} class="muted">No contracts match this filter.</td></tr>
       {/if}
       {#each sortedContracts as contract (contract.id)}
         <tr class="clickable" onclick={() => onSelectContract(contract.id)}>
@@ -129,6 +140,10 @@
           {#if showRate}
             <td>{contract.currentRate ?? '—'}</td>
           {/if}
+          <td class="numeric">{hasHoursBudget(contract) ? formatHours(contract.totalHoursBudgeted) : '—'}</td>
+          <td class="numeric" class:overdrawn={hasHoursBudget(contract) && remainingHours(contract) < 0}>
+            {hasHoursBudget(contract) ? formatHours(remainingHours(contract)) : '—'}
+          </td>
           <td>{contract.notes ?? ''}</td>
         </tr>
       {/each}
@@ -179,5 +194,13 @@
   }
   th.sortable:hover {
     background: rgba(128, 128, 128, 0.1);
+  }
+  .numeric {
+    text-align: right;
+    white-space: nowrap;
+  }
+  .overdrawn {
+    color: #b91c1c;
+    font-weight: 600;
   }
 </style>

@@ -544,6 +544,7 @@ mod tests {
                 custom_text: None,
                 custom_button_bg: None,
                 custom_button_text: None,
+                pay_week_start: "monday".to_string(),
             },
         )
         .expect("save profile");

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { api } from './api'
-  import { store, activeClients, refreshClients } from './store.svelte'
-  import { capitalize } from './dateUtils'
+  import { store, activeClients, clientHoursTotals, refreshClients } from './store.svelte'
+  import { capitalize, formatHours } from './dateUtils'
 
   let { onSelectClient }: { onSelectClient: (clientId: number) => void } = $props()
 
@@ -37,17 +37,24 @@
         <th>Sub</th>
         <th>Week Start</th>
         <th>Min Inc</th>
+        <th class="numeric">Total Hrs</th>
+        <th class="numeric">Remaining</th>
         <th>Notes</th>
       </tr>
     </thead>
     <tbody>
       {#each activeClients() as client (client.id)}
+        {@const hours = clientHoursTotals(client.id)}
         <tr class="clickable" onclick={() => onSelectClient(client.id)}>
           <td>{client.name}</td>
           <td>{client.prime ?? ''}</td>
           <td>{client.sub ?? ''}</td>
           <td>{capitalize(client.weekStart)}</td>
           <td>{client.minimumIncrementMinutes ?? ''}</td>
+          <td class="numeric">{hours.budgeted === null ? '—' : formatHours(hours.budgeted)}</td>
+          <td class="numeric" class:overdrawn={hours.budgeted !== null && hours.remaining < 0}>
+            {hours.budgeted === null ? '—' : formatHours(hours.remaining)}
+          </td>
           <td>{client.notes ?? ''}</td>
         </tr>
       {/each}
@@ -80,5 +87,13 @@
   }
   tr.clickable:hover {
     background: rgba(128, 128, 128, 0.1);
+  }
+  .numeric {
+    text-align: right;
+    white-space: nowrap;
+  }
+  .overdrawn {
+    color: #b91c1c;
+    font-weight: 600;
   }
 </style>

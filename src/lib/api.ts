@@ -122,6 +122,8 @@ export interface UserProfile {
   customText: string | null
   customButtonBg: string | null
   customButtonText: string | null
+  /** Weekday a pay week starts on, for the Entries page's week filters. */
+  payWeekStart: Weekday
 }
 
 export interface WindowGeometry {

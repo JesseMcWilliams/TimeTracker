@@ -11,8 +11,22 @@
     isContractArchived,
     loadTrackingCodesForClient,
     refreshEntries,
+    hasHoursBudget,
+    remainingHours,
+    payWeekStartFor,
+    LOW_HOURS_THRESHOLD,
   } from './store.svelte'
-  import { toRfc3339, formatDateTime, formatDuration, formatMoney, roundToNearest5Minutes } from './dateUtils'
+  import {
+    toRfc3339,
+    formatDateTime,
+    formatDuration,
+    formatHours,
+    formatMoney,
+    roundToNearest5Minutes,
+    startOfDay,
+    payWeekRange,
+    shiftWeeks,
+  } from './dateUtils'
 
   let { onSelectEntry, onGoToImport }: { onSelectEntry: (entryId: number) => void; onGoToImport: () => void } = $props()
 
@@ -32,17 +46,9 @@
   let bulkBusy = $state(false)
   let bulkMessage = $state('')
 
-  const PERIOD_DAYS: Record<Exclude<EntriesFilterPeriod, 'all' | 'today' | 'yesterday'>, number> = {
-    lastweek: 7,
-    last2weeks: 14,
+  const PERIOD_DAYS: Record<'month' | '3months', number> = {
     month: 30,
     '3months': 90,
-  }
-
-  function startOfDay(date: Date): Date {
-    const start = new Date(date)
-    start.setHours(0, 0, 0, 0)
-    return start
   }
 
   function periodRange(period: EntriesFilterPeriod): { from?: string; to?: string } {
@@ -57,6 +63,20 @@
       const from = startOfDay(to)
       return { from: from.toISOString(), to: to.toISOString() }
     }
+
+    // The week options follow whole pay periods, not a rolling N days back, so "last
+    // week" is the previous complete pay week rather than "the last 7×24 hours".
+    if (period === 'thisweek' || period === 'lastweek' || period === 'last2weeks') {
+      const thisWeek = payWeekRange(new Date(), payWeekStartFor(entriesFilter.contractId))
+      const range =
+        period === 'thisweek'
+          ? thisWeek
+          : period === 'lastweek'
+            ? shiftWeeks(thisWeek, 1)
+            : shiftWeeks(thisWeek, 2, 2)
+      return { from: range.from.toISOString(), to: range.to.toISOString() }
+    }
+
     const from = new Date(Date.now() - PERIOD_DAYS[period] * 24 * 60 * 60 * 1000).toISOString()
     return { from }
   }
@@ -77,6 +97,7 @@
   $effect(() => {
     entriesFilter.period
     entriesFilter.contractId
+    store.userProfile.payWeekStart
     loadEntries()
   })
 
@@ -125,6 +146,15 @@
   )
 
   let endBeforeStart = $derived(!!newStart && !!newEnd && newEnd <= newStart)
+
+  /** The contract picked in the add-entry row, when it has an hours budget worth
+   * warning about. Contracts with no budget set have nothing to run out of. */
+  let lowHoursContract = $derived.by(() => {
+    if (!newContractId) return undefined
+    const contract = store.contracts.find((c) => c.id === Number(newContractId))
+    if (!contract || !hasHoursBudget(contract)) return undefined
+    return remainingHours(contract) < LOW_HOURS_THRESHOLD ? contract : undefined
+  })
 
   $effect(() => {
     newTrackingCodeId = ''
@@ -287,12 +317,25 @@
   {#if endBeforeStart}
     <p class="error">End time must be after the start time.</p>
   {/if}
+  {#if lowHoursContract}
+    {@const left = remainingHours(lowHoursContract)}
+    <p class="warning" class:overdrawn={left < 0}>
+      {#if left < 0}
+        <strong>{contractLabel(lowHoursContract.id)}</strong> is over budget by {formatHours(Math.abs(left))} —
+        {formatHours(lowHoursContract.totalHoursBudgeted)} budgeted, {formatHours(lowHoursContract.hoursLogged)} logged.
+      {:else}
+        <strong>{contractLabel(lowHoursContract.id)}</strong> has only {formatHours(left)} remaining of
+        {formatHours(lowHoursContract.totalHoursBudgeted)} budgeted.
+      {/if}
+    </p>
+  {/if}
 
   <div class="row">
     <label for="filter-period">Show</label>
     <select id="filter-period" bind:value={entriesFilter.period}>
       <option value="today">Today</option>
       <option value="yesterday">Yesterday</option>
+      <option value="thisweek">This week</option>
       <option value="lastweek">Last week</option>
       <option value="last2weeks">Last 2 weeks</option>
       <option value="month">Last month</option>
@@ -463,6 +506,22 @@
     color: #b91c1c;
     font-size: 0.9rem;
     margin: -0.4rem 0 0.75rem;
+  }
+  /* Amber by default: low hours is something to notice before logging, not an error.
+     It escalates to the error red once the contract is actually over budget. */
+  .warning {
+    color: #92400e;
+    background: #fef3c7;
+    border: 1px solid #fcd34d;
+    border-radius: 4px;
+    font-size: 0.9rem;
+    padding: 0.4rem 0.6rem;
+    margin: -0.4rem 0 0.75rem;
+  }
+  .warning.overdrawn {
+    color: #58151c;
+    background: #f8d7da;
+    border-color: #f1aeb5;
   }
   .muted {
     color: #666;

@@ -23,13 +23,16 @@ pub struct UserProfile {
     pub custom_text: Option<String>,
     pub custom_button_bg: Option<String>,
     pub custom_button_text: Option<String>,
+    /// Weekday a pay week starts on ("monday"), used by the Entries page's week filters
+    /// when no single client's own week_start applies.
+    pub pay_week_start: String,
 }
 
 pub fn get_user_profile(conn: &Connection) -> DomainResult<Option<UserProfile>> {
     conn.query_row(
         "SELECT first_name, last_name, full_name, email, output_folder, output_type,
                 window_width, window_height, window_x, window_y, default_start_page, launch_position,
-                theme, custom_bg, custom_text, custom_button_bg, custom_button_text
+                theme, custom_bg, custom_text, custom_button_bg, custom_button_text, pay_week_start
          FROM user_profile WHERE id = 1",
         [],
         |row| {
@@ -51,6 +54,7 @@ pub fn get_user_profile(conn: &Connection) -> DomainResult<Option<UserProfile>> 
                 custom_text: row.get(14)?,
                 custom_button_bg: row.get(15)?,
                 custom_button_text: row.get(16)?,
+                pay_week_start: row.get(17)?,
             })
         },
     )
@@ -62,8 +66,8 @@ pub fn save_user_profile(conn: &Connection, profile: &UserProfile) -> DomainResu
     conn.execute(
         "INSERT INTO user_profile (id, first_name, last_name, full_name, email, output_folder, output_type,
             window_width, window_height, window_x, window_y, default_start_page, launch_position,
-            theme, custom_bg, custom_text, custom_button_bg, custom_button_text)
-         VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
+            theme, custom_bg, custom_text, custom_button_bg, custom_button_text, pay_week_start)
+         VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)
          ON CONFLICT(id) DO UPDATE SET
             first_name = excluded.first_name,
             last_name = excluded.last_name,
@@ -81,7 +85,8 @@ pub fn save_user_profile(conn: &Connection, profile: &UserProfile) -> DomainResu
             custom_bg = excluded.custom_bg,
             custom_text = excluded.custom_text,
             custom_button_bg = excluded.custom_button_bg,
-            custom_button_text = excluded.custom_button_text",
+            custom_button_text = excluded.custom_button_text,
+            pay_week_start = excluded.pay_week_start",
         params![
             profile.first_name,
             profile.last_name,
@@ -100,6 +105,7 @@ pub fn save_user_profile(conn: &Connection, profile: &UserProfile) -> DomainResu
             profile.custom_text,
             profile.custom_button_bg,
             profile.custom_button_text,
+            profile.pay_week_start,
         ],
     )
     .map_err(|e| e.to_string())?;
