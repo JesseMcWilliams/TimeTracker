@@ -157,6 +157,17 @@ export async function refreshDeletedEntries() {
   store.deletedEntries = await api.listDeletedEntries()
 }
 
+/** Refreshes everything a time-entry change touches.
+ *
+ * Changing an entry also moves the logged-hours figure on its contract, but that figure
+ * is computed per contract by the backend and cached in `store.contracts` — refreshing
+ * the entries alone leaves every hours display stale: the Total Hrs / Remaining columns
+ * on Clients and Contracts, and the low-hours warning on Entries. Call this rather than
+ * `refreshEntries` on its own after any create, edit, delete, restore, or import. */
+export async function refreshAfterEntryChange() {
+  await Promise.all([refreshEntries(), refreshContracts()])
+}
+
 export async function refreshAll() {
   store.loading = true
   try {

@@ -8,7 +8,7 @@
     clientIdForContract,
     isContractArchived,
     loadTrackingCodesForClient,
-    refreshEntries,
+    refreshAfterEntryChange,
     refreshActiveTimers,
   } from './store.svelte'
   import { toRfc3339, toDatetimeLocalValue, formatMoney, isDirty } from './dateUtils'
@@ -99,7 +99,7 @@
         editNotes.trim() || undefined,
         editTrackingCodeId ? Number(editTrackingCodeId) : undefined,
       )
-      await refreshEntries()
+      await refreshAfterEntryChange()
       navGuard.isDirty = false
     } finally {
       busy = false
@@ -115,7 +115,7 @@
         editNotes.trim() || undefined,
         editTrackingCodeId ? Number(editTrackingCodeId) : undefined,
       )
-      await refreshEntries()
+      await refreshAfterEntryChange()
       navGuard.isDirty = false
     } finally {
       busy = false
@@ -127,7 +127,7 @@
     busy = true
     try {
       await api.stopTimer(entry.id)
-      await Promise.all([refreshEntries(), refreshActiveTimers()])
+      await Promise.all([refreshAfterEntryChange(), refreshActiveTimers()])
     } finally {
       busy = false
     }
@@ -139,7 +139,7 @@
     busy = true
     try {
       await api.deleteEntry(entry.id)
-      await refreshEntries()
+      await refreshAfterEntryChange()
       onBack()
     } finally {
       busy = false

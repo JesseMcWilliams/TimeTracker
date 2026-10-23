@@ -8,7 +8,7 @@
     isContractArchived,
     loadTrackingCodesForClient,
     refreshActiveTimers,
-    refreshEntries,
+    refreshAfterEntryChange,
   } from './store.svelte'
   import { formatDateTime } from './dateUtils'
 
@@ -57,7 +57,7 @@
       )
       notes = ''
       trackingCodeId = ''
-      await Promise.all([refreshActiveTimers(), refreshEntries()])
+      await Promise.all([refreshActiveTimers(), refreshAfterEntryChange()])
     } finally {
       busy = false
     }
@@ -68,7 +68,7 @@
     busy = true
     try {
       await api.stopTimer(entryId)
-      await Promise.all([refreshActiveTimers(), refreshEntries()])
+      await Promise.all([refreshActiveTimers(), refreshAfterEntryChange()])
     } finally {
       busy = false
     }

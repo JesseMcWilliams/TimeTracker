@@ -6,7 +6,7 @@
     store,
     contractLabel,
     refreshDeletedEntries,
-    refreshEntries,
+    refreshAfterEntryChange,
     refreshContracts,
     refreshClients,
     refreshArchivedTrackingCodes,
@@ -64,7 +64,7 @@
     busy = true
     try {
       await api.restoreEntry(entryId)
-      await Promise.all([refreshDeletedEntries(), refreshEntries()])
+      await Promise.all([refreshDeletedEntries(), refreshAfterEntryChange()])
     } finally {
       busy = false
     }
