@@ -12,7 +12,7 @@
     loadTrackingCodesForClient,
     refreshEntries,
   } from './store.svelte'
-  import { toRfc3339, formatDateTime, formatDuration, formatMoney } from './dateUtils'
+  import { toRfc3339, formatDateTime, formatDuration, formatMoney, roundToNearest5Minutes } from './dateUtils'
 
   let { onSelectEntry, onGoToImport }: { onSelectEntry: (entryId: number) => void; onGoToImport: () => void } = $props()
 
@@ -262,8 +262,17 @@
         <option value={contract.id}>{contractLabel(contract.id)}</option>
       {/each}
     </select>
-    <input type="datetime-local" bind:value={newStart} />
-    <input type="datetime-local" bind:value={newEnd} min={newStart || undefined} />
+    <input
+      type="datetime-local"
+      bind:value={newStart}
+      onchange={() => (newStart = roundToNearest5Minutes(newStart))}
+    />
+    <input
+      type="datetime-local"
+      bind:value={newEnd}
+      min={newStart || undefined}
+      onchange={() => (newEnd = roundToNearest5Minutes(newEnd))}
+    />
     {#if availableCodes.length > 0}
       <select bind:value={newTrackingCodeId}>
         <option value="">No category</option>
