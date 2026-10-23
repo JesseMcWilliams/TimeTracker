@@ -1,5 +1,4 @@
 import { invoke } from '@tauri-apps/api/core'
-import { utcOffsetMinutes } from './dateUtils'
 
 export type Weekday = 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday'
 
@@ -480,7 +479,7 @@ export const api = {
   getDatabaseSize: () => invoke<number>('get_database_size'),
 
   generateReport: (period: ReportPeriod, referenceDate: string) =>
-    invoke<Report>('generate_report', { period, referenceDate, utcOffsetMinutes: utcOffsetMinutes() }),
+    invoke<Report>('generate_report', { period, referenceDate }),
   generateTimesheets: (
     period: ReportPeriod,
     referenceDate: string,
@@ -494,7 +493,6 @@ export const api = {
       includeRateAmount,
       clientId: clientId ?? null,
       contractId: contractId ?? null,
-      utcOffsetMinutes: utcOffsetMinutes(),
     }),
   getDefaultOutputFolder: () => invoke<string>('get_default_output_folder'),
 
@@ -568,9 +566,5 @@ export const api = {
   /** Passing no id clears the default, leaving no template preselected. */
   setDefaultEmailTemplate: (id?: number) => invoke<void>('set_default_email_template', { id: id ?? null }),
   generateNoTimeEmail: (templateId: number, referenceDate: string) =>
-    invoke<NoTimeEmailPreview>('generate_no_time_email', {
-      templateId,
-      referenceDate,
-      utcOffsetMinutes: utcOffsetMinutes(),
-    }),
+    invoke<NoTimeEmailPreview>('generate_no_time_email', { templateId, referenceDate }),
 }

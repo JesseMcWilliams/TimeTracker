@@ -21,12 +21,12 @@ export function roundToNearest5Minutes(datetimeLocal: string): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
-/** This machine's current offset east of UTC, in minutes — the sign convention the
- * backend's date-range bounds expect (UTC-5 is -300). `getTimezoneOffset` reports the
- * opposite sign, hence the negation. Read per call so it stays right across a DST
- * change without a restart. */
-export function utcOffsetMinutes(): number {
-  return -new Date().getTimezoneOffset()
+/** A Date as the local calendar day it falls on, `YYYY-MM-DD` — the form entries store
+ * in `local_date` and that every date-range filter compares against. Built from local
+ * components, never `toISOString()`, which would answer in UTC and shift the day. */
+export function toLocalDateString(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
 }
 
 export function formatDateTime(iso: string): string {

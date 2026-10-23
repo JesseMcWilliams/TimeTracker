@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { payWeekRange, roundToNearest5Minutes, shiftWeeks, startOfDay, utcOffsetMinutes } from './dateUtils'
+import { payWeekRange, roundToNearest5Minutes, shiftWeeks, startOfDay, toLocalDateString } from './dateUtils'
 
 /** Local calendar date, written the way the assertions read. Built from local
  * components rather than an ISO string so these tests assert the same thing in every
@@ -138,9 +138,32 @@ describe('startOfDay', () => {
   })
 })
 
-describe('utcOffsetMinutes', () => {
-  it('reports minutes east of UTC, the sign the backend bounds expect', () => {
-    expect(utcOffsetMinutes()).toBe(-new Date().getTimezoneOffset())
+describe('toLocalDateString', () => {
+  it('renders the local calendar day, zero-padded', () => {
+    expect(toLocalDateString(local(2026, 8, 7, 13, 30))).toBe('2026-08-07')
+    expect(toLocalDateString(local(2026, 12, 31, 23, 59))).toBe('2026-12-31')
+  })
+
+  it('reports the local day, not the UTC one', () => {
+    // Late on the 20th locally. In any timezone east of UTC this instant is already the
+    // 21st in UTC, and toISOString() would say so — the local day is what entries store.
+    const lateLocal = local(2026, 8, 20, 23, 30)
+
+    expect(toLocalDateString(lateLocal)).toBe('2026-08-20')
+  })
+
+  it('agrees with the bounds the pay-week helpers produce', () => {
+    const { from, to } = payWeekRange(THURSDAY, 'monday')
+
+    expect(toLocalDateString(from)).toBe('2026-08-17')
+    expect(toLocalDateString(to)).toBe('2026-08-23')
+  })
+
+  it('sorts as a string in calendar order, which is how it is queried', () => {
+    const days = [local(2025, 12, 31), local(2026, 1, 1), local(2026, 1, 9), local(2026, 1, 10), local(2026, 2, 1)]
+    const rendered = days.map(toLocalDateString)
+
+    expect(rendered).toEqual([...rendered].sort())
   })
 })
 
