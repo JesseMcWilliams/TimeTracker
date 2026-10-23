@@ -20,6 +20,9 @@
   let newRate = $state('')
   let hoursAdjustment = $state('')
   let hoursAdjustmentNote = $state('')
+  /** "adjust" adds to the running total; "set" states the total you want and lets the
+   * backend record the difference. Both land in the same append-only log. */
+  let hoursMode = $state<'adjust' | 'set'>('adjust')
   let busy = $state(false)
 
   let remainingHours = $derived(contract ? contract.totalHoursBudgeted - contract.hoursLogged : 0)
@@ -88,11 +91,30 @@
     }
   }
 
+  // Setting a total to zero is meaningful (it clears the budget), so only "adjust"
+  // treats zero as nothing to do.
+  let canApplyHours = $derived(
+    hoursAdjustment !== '' && (hoursMode === 'set' || Number(hoursAdjustment) !== 0) && !Number.isNaN(Number(hoursAdjustment)),
+  )
+
+  /** What the budget will read after applying, so the figure is visible before committing. */
+  let hoursPreview = $derived.by(() => {
+    if (!contract || !canApplyHours) return null
+    const value = Number(hoursAdjustment)
+    return hoursMode === 'set' ? value : contract.totalHoursBudgeted + value
+  })
+
   async function applyHoursAdjustment() {
-    if (!contract || hoursAdjustment === '' || Number(hoursAdjustment) === 0) return
+    if (!contract || !canApplyHours) return
     busy = true
     try {
-      await api.addContractHours(contract.id, Number(hoursAdjustment), hoursAdjustmentNote.trim() || undefined)
+      const value = Number(hoursAdjustment)
+      const note = hoursAdjustmentNote.trim() || undefined
+      if (hoursMode === 'set') {
+        await api.setContractHours(contract.id, value, note)
+      } else {
+        await api.addContractHours(contract.id, value, note)
+      }
       hoursAdjustment = ''
       hoursAdjustmentNote = ''
       await refreshContracts()
@@ -184,18 +206,36 @@
 
     <h3>Hours</h3>
     <div class="field">
-      <label for="hours-adjustment">Adjust by</label>
+      <span class="field-label">Mode</span>
+      <label class="radio">
+        <input type="radio" name="hours-mode" value="adjust" bind:group={hoursMode} />
+        Adjust by
+      </label>
+      <label class="radio">
+        <input type="radio" name="hours-mode" value="set" bind:group={hoursMode} />
+        Set total to
+      </label>
+    </div>
+    <div class="field">
+      <label for="hours-adjustment">{hoursMode === 'set' ? 'Total' : 'Adjust by'}</label>
       <input id="hours-adjustment" type="number" step="0.25" bind:value={hoursAdjustment} style="width: 7rem" />
-      hours (negative to remove)
+      {hoursMode === 'set' ? 'hours in total' : 'hours (negative to remove)'}
     </div>
     <div class="field">
       <label for="hours-adjustment-note">Note</label>
       <input id="hours-adjustment-note" bind:value={hoursAdjustmentNote} placeholder="optional" style="flex: 1" />
     </div>
+    {#if hoursPreview !== null}
+      <p class="hint">
+        Budget becomes {formatDuration(hoursPreview * 3600)} &mdash;
+        {formatDuration((hoursPreview - contract.hoursLogged) * 3600)} remaining after
+        {formatDuration(contract.hoursLogged * 3600)} already logged.
+      </p>
+    {/if}
     <div class="row">
-      <button onclick={applyHoursAdjustment} disabled={busy || hoursAdjustment === '' || Number(hoursAdjustment) === 0}
-        >Apply adjustment</button
-      >
+      <button onclick={applyHoursAdjustment} disabled={busy || !canApplyHours}>
+        {hoursMode === 'set' ? 'Set total' : 'Apply adjustment'}
+      </button>
     </div>
 
     <div class="row danger-row">
@@ -229,8 +269,21 @@
     gap: 0.5rem;
     margin-bottom: 0.6rem;
   }
-  .field label {
+  .field label,
+  .field .field-label {
     width: 5.5rem;
+  }
+  .field label.radio {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    width: auto;
+    font-size: 0.9rem;
+  }
+  .hint {
+    color: #666;
+    font-size: 0.85rem;
+    margin: -0.2rem 0 0.75rem 6rem;
   }
   .field.notes-row {
     align-items: flex-start;

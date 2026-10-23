@@ -95,6 +95,7 @@ pub fn run() {
             commands::list_contracts,
             commands::update_contract_rate,
             commands::add_contract_hours,
+            commands::set_contract_hours,
             commands::update_contract_details,
             commands::archive_contract,
             commands::restore_contract,
