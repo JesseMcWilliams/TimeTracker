@@ -1,10 +1,14 @@
 <script lang="ts">
   import { confirm } from '@tauri-apps/plugin-dialog'
-  import { api, type EmailDateRange } from './api'
+  import { api, EMAIL_PLACEHOLDERS, type EmailDateFormat, type EmailDateRange } from './api'
   import { store, navGuard, refreshEmailTemplates, activeContracts, contractLabel } from './store.svelte'
   import { isDirty } from './dateUtils'
 
-  let { templateId, onBack }: { templateId: number | null; onBack: (savedId?: number) => void } = $props()
+  let {
+    templateId,
+    onBack,
+    backLabel = 'Back to Reports',
+  }: { templateId: number | null; onBack: (savedId?: number) => void; backLabel?: string } = $props()
 
   let template = $derived(templateId === null ? undefined : store.emailTemplates.find((t) => t.id === templateId))
 
@@ -15,6 +19,10 @@
     email: '',
     contractId: '' as number | '',
     dateRange: 'previous_week' as EmailDateRange,
+    subjectTemplate: '',
+    bodyTemplate: '',
+    dateFormat: 'iso' as EmailDateFormat,
+    isDefault: false,
   }
 
   let name = $state(BLANK.name)
@@ -23,6 +31,10 @@
   let email = $state(BLANK.email)
   let contractId = $state<number | ''>(BLANK.contractId)
   let dateRange = $state<EmailDateRange>(BLANK.dateRange)
+  let subjectTemplate = $state(BLANK.subjectTemplate)
+  let bodyTemplate = $state(BLANK.bodyTemplate)
+  let dateFormat = $state<EmailDateFormat>(BLANK.dateFormat)
+  let isDefault = $state(BLANK.isDefault)
   let busy = $state(false)
   let deleteError = $state('')
   let initializedFor = $state<number | null | 'new'>(null)
@@ -37,6 +49,10 @@
       email = BLANK.email
       contractId = BLANK.contractId
       dateRange = BLANK.dateRange
+      subjectTemplate = BLANK.subjectTemplate
+      bodyTemplate = BLANK.bodyTemplate
+      dateFormat = BLANK.dateFormat
+      isDefault = BLANK.isDefault
       initializedFor = 'new'
     } else if (template) {
       name = template.name
@@ -45,25 +61,43 @@
       email = template.email ?? ''
       contractId = template.contractId ?? ''
       dateRange = template.dateRange
+      subjectTemplate = template.subjectTemplate ?? ''
+      bodyTemplate = template.bodyTemplate ?? ''
+      dateFormat = template.dateFormat
+      isDefault = template.isDefault
       initializedFor = templateId
     }
   })
 
+  let edited = $derived({
+    name,
+    description,
+    notes,
+    email,
+    contractId,
+    dateRange,
+    subjectTemplate,
+    bodyTemplate,
+    dateFormat,
+    isDefault,
+  })
+
   let dirty = $derived(
     templateId === null
-      ? isDirty({ name, description, notes, email, contractId, dateRange }, BLANK)
+      ? isDirty(edited, BLANK)
       : template
-        ? isDirty(
-            { name, description, notes, email, contractId, dateRange },
-            {
-              name: template.name,
-              description: template.description ?? '',
-              notes: template.notes ?? '',
-              email: template.email ?? '',
-              contractId: template.contractId ?? '',
-              dateRange: template.dateRange,
-            },
-          )
+        ? isDirty(edited, {
+            name: template.name,
+            description: template.description ?? '',
+            notes: template.notes ?? '',
+            email: template.email ?? '',
+            contractId: template.contractId ?? '',
+            dateRange: template.dateRange,
+            subjectTemplate: template.subjectTemplate ?? '',
+            bodyTemplate: template.bodyTemplate ?? '',
+            dateFormat: template.dateFormat,
+            isDefault: template.isDefault,
+          })
         : false,
   )
 
@@ -77,33 +111,33 @@
     if (!canSave) return
     busy = true
     try {
-      const contractIdArg = contractId === '' ? undefined : Number(contractId)
-      if (templateId === null) {
-        const id = await api.createEmailTemplate(
-          name.trim(),
-          dateRange,
-          description.trim() || undefined,
-          notes.trim() || undefined,
-          email.trim() || undefined,
-          contractIdArg,
-        )
-        await refreshEmailTemplates()
-        navGuard.isDirty = false
-        onBack(id)
-      } else {
-        await api.updateEmailTemplate(
-          templateId,
-          name.trim(),
-          dateRange,
-          description.trim() || undefined,
-          notes.trim() || undefined,
-          email.trim() || undefined,
-          contractIdArg,
-        )
-        await refreshEmailTemplates()
-        navGuard.isDirty = false
-        onBack(templateId)
+      const input = {
+        name: name.trim(),
+        dateRange,
+        dateFormat,
+        description: description.trim() || undefined,
+        notes: notes.trim() || undefined,
+        email: email.trim() || undefined,
+        contractId: contractId === '' ? undefined : Number(contractId),
+        subjectTemplate: subjectTemplate.trim() || undefined,
+        bodyTemplate: bodyTemplate.trim() || undefined,
       }
+      let savedId: number
+      if (templateId === null) {
+        savedId = await api.createEmailTemplate(input)
+      } else {
+        await api.updateEmailTemplate(templateId, input)
+        savedId = templateId
+      }
+
+      // The default flag has its own command because setting it also has to clear
+      // whichever template held it before.
+      const wasDefault = template?.isDefault ?? false
+      if (isDefault !== wasDefault) await api.setDefaultEmailTemplate(isDefault ? savedId : undefined)
+
+      await refreshEmailTemplates()
+      navGuard.isDirty = false
+      onBack(savedId)
     } finally {
       busy = false
     }
@@ -128,7 +162,7 @@
 </script>
 
 <section class="panel">
-  <button onclick={() => onBack()}>&larr; Back to Reports</button>
+  <button onclick={() => onBack()}>&larr; {backLabel}</button>
 
   <h2>{templateId === null ? 'Add Email Template' : 'Edit Email Template'}</h2>
 
@@ -175,6 +209,42 @@
         <option value="previous_month">Previous month</option>
       </select>
     </div>
+    <div class="field">
+      <label for="tpl-date-format">Date format</label>
+      <select id="tpl-date-format" bind:value={dateFormat}>
+        <option value="iso">2026-08-17</option>
+        <option value="us">08/17/2026</option>
+        <option value="long">Aug 17, 2026</option>
+      </select>
+    </div>
+    <div class="field">
+      <span class="field-label">Default</span>
+      <label class="checkbox">
+        <input type="checkbox" bind:checked={isDefault} />
+        Preselect this template on the Reports page
+      </label>
+    </div>
+
+    <h3>Subject &amp; body</h3>
+    <p class="hint">
+      Leave either blank to use the built-in wording. Placeholders:
+      {#each EMAIL_PLACEHOLDERS as placeholder, i (placeholder)}<code>{'{' + placeholder + '}'}</code
+        >{i < EMAIL_PLACEHOLDERS.length - 1 ? ', ' : ''}{/each}
+    </p>
+    <div class="field">
+      <label for="tpl-subject">Subject</label>
+      <input id="tpl-subject" bind:value={subjectTemplate} placeholder="Timesheets: {'{StartDate}'} to {'{EndDate}'}" />
+    </div>
+    <div class="field notes-row">
+      <label for="tpl-body">Body</label>
+      <textarea
+        id="tpl-body"
+        class="notes-input"
+        bind:value={bodyTemplate}
+        rows="4"
+        placeholder={'The following contracts have no time logged for {DateRange}:\n\n{Contracts}'}
+      ></textarea>
+    </div>
 
     {#if deleteError}
       <div class="error">{deleteError}</div>
@@ -200,7 +270,8 @@
     gap: 0.5rem;
     margin-bottom: 0.6rem;
   }
-  .field label {
+  .field label,
+  .field .field-label {
     width: 7rem;
     flex-shrink: 0;
   }
@@ -233,6 +304,31 @@
     gap: 0.5rem;
     align-items: center;
     margin-top: 0.5rem;
+  }
+  h3 {
+    margin-top: 1.5rem;
+    margin-bottom: 0.4rem;
+  }
+  .hint {
+    color: #666;
+    font-size: 0.85rem;
+    margin: 0 0 0.75rem;
+    line-height: 1.5;
+  }
+  .hint code {
+    background: rgba(128, 128, 128, 0.15);
+    border-radius: 3px;
+    padding: 0.05rem 0.25rem;
+  }
+  .field label.checkbox {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    width: auto;
+    font-size: 0.9rem;
+  }
+  .checkbox input {
+    flex: none;
   }
   button.unchanged {
     background: #e5e5e5;

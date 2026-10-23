@@ -21,6 +21,14 @@ export function roundToNearest5Minutes(datetimeLocal: string): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
+/** This machine's current offset east of UTC, in minutes — the sign convention the
+ * backend's date-range bounds expect (UTC-5 is -300). `getTimezoneOffset` reports the
+ * opposite sign, hence the negation. Read per call so it stays right across a DST
+ * change without a restart. */
+export function utcOffsetMinutes(): number {
+  return -new Date().getTimezoneOffset()
+}
+
 export function formatDateTime(iso: string): string {
   return new Date(iso).toLocaleString()
 }
@@ -32,6 +40,65 @@ export function formatDuration(secs: number | null): string {
   const h = Math.floor(abs / 3600)
   const m = Math.floor((abs % 3600) / 60)
   return `${sign}${h}h ${m}m`
+}
+
+const WEEKDAY_INDEX: Record<string, number> = {
+  sunday: 0,
+  monday: 1,
+  tuesday: 2,
+  wednesday: 3,
+  thursday: 4,
+  friday: 5,
+  saturday: 6,
+}
+
+export function startOfDay(date: Date): Date {
+  const start = new Date(date)
+  start.setHours(0, 0, 0, 0)
+  return start
+}
+
+function endOfDay(date: Date): Date {
+  const end = new Date(date)
+  end.setHours(23, 59, 59, 999)
+  return end
+}
+
+/** The most recent `weekday` on or before `date`, at local midnight. Mirrors
+ * `period::most_recent_on_or_before` on the Rust side. */
+function mostRecentOnOrBefore(date: Date, weekday: string): Date {
+  const target = WEEKDAY_INDEX[weekday.toLowerCase()] ?? 1
+  const d = startOfDay(date)
+  const delta = (d.getDay() - target + 7) % 7
+  d.setDate(d.getDate() - delta)
+  return d
+}
+
+/** The pay week containing `reference`, as inclusive local-time bounds. `weekStart` is a
+ * weekday name ("monday"); the week runs seven days from there, which is what every
+ * weekStart/weekEnd pair in this app describes. */
+export function payWeekRange(reference: Date, weekStart: string): { from: Date; to: Date } {
+  const from = mostRecentOnOrBefore(reference, weekStart)
+  const to = new Date(from)
+  to.setDate(to.getDate() + 6)
+  return { from, to: endOfDay(to) }
+}
+
+/** Shifts a pay-week range back by `weeks` whole weeks, optionally widening it to span
+ * that many weeks — "last two weeks" is the two complete pay weeks before this one. */
+export function shiftWeeks(range: { from: Date; to: Date }, weeks: number, spanWeeks = 1): { from: Date; to: Date } {
+  const from = new Date(range.from)
+  from.setDate(from.getDate() - weeks * 7)
+  const to = new Date(range.to)
+  to.setDate(to.getDate() - (weeks - spanWeeks + 1) * 7)
+  return { from, to }
+}
+
+/** Hours as a short decimal — "7.5 h". Distinct from `formatDuration`, which renders
+ * tracked time as "7h 30m"; budgets are negotiated and discussed in decimal hours. */
+export function formatHours(hours: number): string {
+  const rounded = Math.round(hours * 100) / 100
+  return `${rounded} h`
 }
 
 export function formatMoney(amount: number, currency: string): string {

@@ -129,14 +129,15 @@
   let emailCopied = $state(false)
 
   // Keep emailTemplateId pointing at a real template whenever possible, without
-  // overriding a selection the user already made.
+  // overriding a selection the user already made. The template flagged as default wins
+  // the initial pick; failing that, the first one listed.
   $effect(() => {
     if (store.emailTemplates.length === 0) {
       emailTemplateId = ''
       return
     }
     if (emailTemplateId !== '' && store.emailTemplates.some((t) => t.id === Number(emailTemplateId))) return
-    emailTemplateId = store.emailTemplates[0].id
+    emailTemplateId = (store.emailTemplates.find((t) => t.isDefault) ?? store.emailTemplates[0]).id
   })
 
   let selectedEmailTemplate = $derived(
@@ -347,7 +348,7 @@
     <label for="email-template-select">Template</label>
     <select id="email-template-select" bind:value={emailTemplateId} onchange={onEmailTemplateChange}>
       {#each store.emailTemplates as t (t.id)}
-        <option value={t.id}>{t.name}</option>
+        <option value={t.id}>{t.name}{t.isDefault ? ' (default)' : ''}</option>
       {/each}
     </select>
     <button type="button" onclick={() => onGoToEmailTemplate(null)}>Add…</button>

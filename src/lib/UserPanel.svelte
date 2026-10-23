@@ -1,8 +1,8 @@
 <script lang="ts">
   import { open } from '@tauri-apps/plugin-dialog'
-  import { api } from './api'
+  import { api, WEEKDAYS, type Weekday } from './api'
   import { store, navGuard, refreshUserProfile } from './store.svelte'
-  import { isDirty } from './dateUtils'
+  import { capitalize, isDirty } from './dateUtils'
 
   let { onBack }: { onBack: () => void } = $props()
 
@@ -12,6 +12,7 @@
   let email = $state('')
   let outputFolder = $state('')
   let outputType = $state<'csv' | 'xlsx'>('xlsx')
+  let payWeekStart = $state<Weekday>('monday')
   let busy = $state(false)
   let loadedFor = $state<string | null>(null)
 
@@ -24,6 +25,7 @@
       email = store.userProfile.email ?? ''
       outputFolder = store.userProfile.outputFolder ?? ''
       outputType = store.userProfile.outputType
+      payWeekStart = store.userProfile.payWeekStart
       loadedFor = key
       if (!outputFolder) {
         api.getDefaultOutputFolder().then((d) => {
@@ -35,7 +37,7 @@
 
   let dirty = $derived(
     isDirty(
-      { firstName, lastName, fullName, email, outputFolder, outputType },
+      { firstName, lastName, fullName, email, outputFolder, outputType, payWeekStart },
       {
         firstName: store.userProfile.firstName ?? '',
         lastName: store.userProfile.lastName ?? '',
@@ -43,6 +45,7 @@
         email: store.userProfile.email ?? '',
         outputFolder: store.userProfile.outputFolder ?? '',
         outputType: store.userProfile.outputType,
+        payWeekStart: store.userProfile.payWeekStart,
       },
     ),
   )
@@ -75,6 +78,7 @@
         email: email.trim() || null,
         outputFolder: outputFolder.trim() || null,
         outputType,
+        payWeekStart,
       })
       await refreshUserProfile()
       navGuard.isDirty = false
@@ -116,6 +120,18 @@
     <button type="button" onclick={browseOutputFolder}>Browse…</button>
   </div>
   <div class="field">
+    <label for="pay-week-start">Pay week starts</label>
+    <select id="pay-week-start" bind:value={payWeekStart}>
+      {#each WEEKDAYS as day (day)}
+        <option value={day}>{capitalize(day)}</option>
+      {/each}
+    </select>
+  </div>
+  <p class="hint">
+    Used by the Entries page's week filters when no contract is selected. With one
+    selected, that client's own week start applies instead.
+  </p>
+  <div class="field">
     <label for="output-type">Output type</label>
     <select id="output-type" bind:value={outputType}>
       <option value="xlsx">Excel (.xlsx)</option>
@@ -143,6 +159,12 @@
   .field input,
   .field select {
     flex: 1;
+  }
+  .hint {
+    color: #666;
+    font-size: 0.85rem;
+    margin: -0.2rem 0 0.9rem 7.5rem;
+    line-height: 1.45;
   }
   button.unchanged {
     background: #e5e5e5;

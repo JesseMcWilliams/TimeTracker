@@ -27,6 +27,7 @@ const EMPTY_PROFILE: UserProfile = {
   customText: null,
   customButtonBg: null,
   customButtonText: null,
+  payWeekStart: 'monday',
 }
 
 export const store = $state({
@@ -48,7 +49,26 @@ export const store = $state({
  * unsaved changes. Cleared automatically whenever navigation actually proceeds. */
 export const navGuard = $state({ isDirty: false })
 
-export type EntriesFilterPeriod = 'today' | 'yesterday' | 'lastweek' | 'last2weeks' | 'month' | '3months' | 'all'
+export type EntriesFilterPeriod =
+  | 'today'
+  | 'yesterday'
+  | 'thisweek'
+  | 'lastweek'
+  | 'last2weeks'
+  | 'month'
+  | '3months'
+  | 'all'
+
+/** Which weekday a pay week starts on when no single client is in view. The Entries list
+ * spans every client, and clients may each start their week differently, so there has to
+ * be one fallback; a contract filter narrows it to that client's own setting. */
+export function payWeekStartFor(contractId: number | ''): string {
+  const fallback = store.userProfile.payWeekStart
+  if (!contractId) return fallback
+  const clientId = clientIdForContract(Number(contractId))
+  if (clientId === undefined) return fallback
+  return store.clients.find((c) => c.id === clientId)?.weekStart ?? fallback
+}
 
 /** Entries page filter state, lifted out of the component so it survives navigating
  * away (e.g. into an entry's detail page, or anywhere else) and back — otherwise
@@ -100,6 +120,30 @@ export function activeContracts(): Contract[] {
 export function isContractArchived(contractId: number): boolean {
   return !!store.contracts.find((c) => c.id === contractId)?.archivedAt
 }
+
+/** A contract with no hour adjustments recorded has a budget of 0, which means "no
+ * budget set" rather than "no hours left" — every hours display has to distinguish the
+ * two or an unbudgeted contract reads as permanently overdrawn. */
+export function hasHoursBudget(contract: Contract): boolean {
+  return contract.totalHoursBudgeted > 0
+}
+
+export function remainingHours(contract: Contract): number {
+  return contract.totalHoursBudgeted - contract.hoursLogged
+}
+
+/** A client's hours across all of its active contracts, counting only the ones that
+ * actually carry a budget. `budgeted` is null when none of them do. */
+export function clientHoursTotals(clientId: number): { budgeted: number | null; logged: number; remaining: number } {
+  const budgeted = activeContracts().filter((c) => c.clientId === clientId && hasHoursBudget(c))
+  if (budgeted.length === 0) return { budgeted: null, logged: 0, remaining: 0 }
+  const total = budgeted.reduce((sum, c) => sum + c.totalHoursBudgeted, 0)
+  const logged = budgeted.reduce((sum, c) => sum + c.hoursLogged, 0)
+  return { budgeted: total, logged, remaining: total - logged }
+}
+
+/** Contracts at or below this many remaining hours get a warning on the Entries page. */
+export const LOW_HOURS_THRESHOLD = 10
 
 export async function refreshEntries() {
   store.entries = await api.listEntries()
