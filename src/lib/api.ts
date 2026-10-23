@@ -273,7 +273,13 @@ export interface PurgeAllResult {
   backups: BackupFile[]
 }
 
-export type EmailDateRange = 'previous_week' | 'previous_2_weeks' | 'month' | 'previous_month'
+export type EmailDateRange =
+  | 'current_week'
+  | 'previous_week'
+  | 'current_2_weeks'
+  | 'previous_2_weeks'
+  | 'month'
+  | 'previous_month'
 
 export type EmailDateFormat = 'iso' | 'us' | 'long'
 

@@ -71,16 +71,27 @@ pub fn to_local_date_bounds(start: NaiveDate, end: NaiveDate) -> (String, String
     (start.format("%Y-%m-%d").to_string(), end.format("%Y-%m-%d").to_string())
 }
 
-/// The calendar week (Mon-Sun) immediately before the one containing `reference`.
-pub fn previous_week_range(reference: NaiveDate) -> (NaiveDate, NaiveDate) {
-    let (current_start, _) = week_range(reference, Weekday::Mon, Weekday::Sun);
+/// The week containing `reference`, starting on `week_start`.
+pub fn current_week_range(reference: NaiveDate, week_start: Weekday) -> (NaiveDate, NaiveDate) {
+    let start = week_range(reference, week_start, week_start.pred()).0;
+    (start, start + Duration::days(6))
+}
+
+/// The week immediately before the one containing `reference`.
+pub fn previous_week_range(reference: NaiveDate, week_start: Weekday) -> (NaiveDate, NaiveDate) {
+    let (current_start, _) = current_week_range(reference, week_start);
     (current_start - Duration::days(7), current_start - Duration::days(1))
 }
 
-/// The two calendar weeks (Mon-Sun each) immediately before the one containing
-/// `reference`, as one combined span.
-pub fn previous_two_weeks_range(reference: NaiveDate) -> (NaiveDate, NaiveDate) {
-    let (current_start, _) = week_range(reference, Weekday::Mon, Weekday::Sun);
+/// The week containing `reference` together with the one before it.
+pub fn current_two_weeks_range(reference: NaiveDate, week_start: Weekday) -> (NaiveDate, NaiveDate) {
+    let (current_start, current_end) = current_week_range(reference, week_start);
+    (current_start - Duration::days(7), current_end)
+}
+
+/// The two weeks immediately before the one containing `reference`, as one span.
+pub fn previous_two_weeks_range(reference: NaiveDate, week_start: Weekday) -> (NaiveDate, NaiveDate) {
+    let (current_start, _) = current_week_range(reference, week_start);
     (current_start - Duration::days(14), current_start - Duration::days(1))
 }
 
@@ -94,12 +105,21 @@ pub fn previous_month_range(reference: NaiveDate) -> (NaiveDate, NaiveDate) {
     month_range(prev_month_ref)
 }
 
-/// Resolves one of the email template date-range presets ("previous_week",
-/// "previous_2_weeks", "month", "previous_month") against `reference`.
-pub fn resolve_date_range_preset(preset: &str, reference: NaiveDate) -> Result<(NaiveDate, NaiveDate), String> {
+/// Resolves one of the email template date-range presets against `reference`.
+///
+/// `week_start` is the weekday a pay week begins on, taken from the user's profile —
+/// the email spans every client, so there is no single client's week to use. The
+/// week-based presets honour it; the month-based ones ignore it.
+pub fn resolve_date_range_preset(
+    preset: &str,
+    reference: NaiveDate,
+    week_start: Weekday,
+) -> Result<(NaiveDate, NaiveDate), String> {
     match preset {
-        "previous_week" => Ok(previous_week_range(reference)),
-        "previous_2_weeks" => Ok(previous_two_weeks_range(reference)),
+        "current_week" => Ok(current_week_range(reference, week_start)),
+        "previous_week" => Ok(previous_week_range(reference, week_start)),
+        "current_2_weeks" => Ok(current_two_weeks_range(reference, week_start)),
+        "previous_2_weeks" => Ok(previous_two_weeks_range(reference, week_start)),
         "month" => Ok(month_range(reference)),
         "previous_month" => Ok(previous_month_range(reference)),
         other => Err(format!("unknown date range preset: {other}")),
@@ -129,6 +149,95 @@ pub fn resolve_period(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+
+    /// 2026-10-23 is a Friday; its Monday-start week is 10-19..10-25 and the one
+    /// before is 10-12..10-18.
+    const FRIDAY: (i32, u32, u32) = (2026, 10, 23);
+
+    fn friday() -> NaiveDate {
+        NaiveDate::from_ymd_opt(FRIDAY.0, FRIDAY.1, FRIDAY.2).unwrap()
+    }
+
+    fn span(range: (NaiveDate, NaiveDate)) -> (String, String) {
+        (range.0.format("%Y-%m-%d").to_string(), range.1.format("%Y-%m-%d").to_string())
+    }
+
+    /// The gap this preset was added to close: run mid-week, "previous week" reports
+    /// on the week *before* the one you are in, which is not the week you are asking
+    /// about when you send the email on a Friday.
+    #[test]
+    fn current_week_covers_the_week_in_progress_not_the_one_before() {
+        let current = span(resolve_date_range_preset("current_week", friday(), Weekday::Mon).unwrap());
+        let previous = span(resolve_date_range_preset("previous_week", friday(), Weekday::Mon).unwrap());
+
+        assert_eq!(current, ("2026-10-19".into(), "2026-10-25".into()));
+        assert_eq!(previous, ("2026-10-12".into(), "2026-10-18".into()));
+    }
+
+    #[test]
+    fn a_week_is_seven_days_whichever_day_it_starts_on() {
+        for start in [Weekday::Mon, Weekday::Sun, Weekday::Wed, Weekday::Sat] {
+            let (from, to) = current_week_range(friday(), start);
+            assert_eq!(from.weekday(), start, "the week opens on its start day");
+            assert_eq!((to - from).num_days(), 6, "inclusive seven-day span");
+            assert!(from <= friday() && friday() <= to, "the reference date falls inside its own week");
+        }
+    }
+
+    #[test]
+    fn the_week_presets_honour_a_non_monday_start() {
+        // A Sunday-start week containing Friday 10-23 runs 10-18..10-24.
+        assert_eq!(
+            span(resolve_date_range_preset("current_week", friday(), Weekday::Sun).unwrap()),
+            ("2026-10-18".into(), "2026-10-24".into())
+        );
+        assert_eq!(
+            span(resolve_date_range_preset("previous_week", friday(), Weekday::Sun).unwrap()),
+            ("2026-10-11".into(), "2026-10-17".into())
+        );
+    }
+
+    #[test]
+    fn the_two_week_presets_span_fourteen_days_and_do_not_overlap_each_other() {
+        let current = resolve_date_range_preset("current_2_weeks", friday(), Weekday::Mon).unwrap();
+        let previous = resolve_date_range_preset("previous_2_weeks", friday(), Weekday::Mon).unwrap();
+
+        assert_eq!(span(current), ("2026-10-12".into(), "2026-10-25".into()));
+        assert_eq!(span(previous), ("2026-10-05".into(), "2026-10-18".into()));
+        assert_eq!((current.1 - current.0).num_days(), 13);
+        assert_eq!((previous.1 - previous.0).num_days(), 13);
+    }
+
+    /// previous_* must stop before the current week opens, or a period would be
+    /// reported on twice.
+    #[test]
+    fn the_previous_presets_end_before_the_current_week_begins() {
+        let (current_start, _) = current_week_range(friday(), Weekday::Mon);
+        for preset in ["previous_week", "previous_2_weeks"] {
+            let (_, end) = resolve_date_range_preset(preset, friday(), Weekday::Mon).unwrap();
+            assert!(end < current_start, "{preset} overlaps the current week");
+        }
+    }
+
+    #[test]
+    fn the_month_presets_ignore_the_week_start() {
+        for start in [Weekday::Mon, Weekday::Sun] {
+            assert_eq!(
+                span(resolve_date_range_preset("month", friday(), start).unwrap()),
+                ("2026-10-01".into(), "2026-10-31".into())
+            );
+            assert_eq!(
+                span(resolve_date_range_preset("previous_month", friday(), start).unwrap()),
+                ("2026-09-01".into(), "2026-09-30".into())
+            );
+        }
+    }
+
+    #[test]
+    fn an_unknown_preset_is_rejected_rather_than_guessed_at() {
+        assert!(resolve_date_range_preset("last_fortnight", friday(), Weekday::Mon).is_err());
+    }
 
     #[test]
     fn bounds_are_the_plain_calendar_dates() {
