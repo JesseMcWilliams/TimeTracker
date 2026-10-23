@@ -203,12 +203,19 @@
     <div class="field">
       <label for="tpl-date-range">Date range</label>
       <select id="tpl-date-range" bind:value={dateRange}>
+        <option value="current_week">This week</option>
         <option value="previous_week">Previous week</option>
+        <option value="current_2_weeks">This week and last</option>
         <option value="previous_2_weeks">Previous 2 weeks</option>
         <option value="month">Month</option>
         <option value="previous_month">Previous month</option>
       </select>
     </div>
+    <p class="hint">
+      Weeks start on the day set by <strong>Pay week starts</strong> on Admin &rarr; User. "Previous
+      week" is the last <em>completed</em> week, so mid-week it reports on the week before the one
+      you are in &mdash; pick "This week" to report on the week in progress.
+    </p>
     <div class="field">
       <label for="tpl-date-format">Date format</label>
       <select id="tpl-date-format" bind:value={dateFormat}>

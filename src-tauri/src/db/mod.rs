@@ -75,6 +75,10 @@ const MIGRATIONS: &[(&str, &str)] = &[
         "0019_entry_local_date",
         include_str!("../../migrations/0019_entry_local_date.sql"),
     ),
+    (
+        "0020_email_template_current_week",
+        include_str!("../../migrations/0020_email_template_current_week.sql"),
+    ),
 ];
 
 pub fn open(db_path: &Path) -> Result<Connection, Box<dyn std::error::Error>> {

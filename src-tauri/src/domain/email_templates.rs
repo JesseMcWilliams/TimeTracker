@@ -2,7 +2,7 @@ use chrono::NaiveDate;
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 
-use super::period::{resolve_date_range_preset, to_local_date_bounds};
+use super::period::{parse_weekday, resolve_date_range_preset, to_local_date_bounds};
 use super::DomainResult;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -295,6 +295,13 @@ fn format_body(notes: Option<&str>, date_label: &str, contracts: &[IdleContract]
     body
 }
 
+/// The weekday a pay week starts on, from the user profile. Falls back to Monday when
+/// no profile row exists yet, matching the column's own default.
+fn week_start_from_profile(conn: &Connection) -> String {
+    conn.query_row("SELECT pay_week_start FROM user_profile WHERE id = 1", [], |row| row.get(0))
+        .unwrap_or_else(|_| "monday".to_string())
+}
+
 /// Builds the subject/body for a template's "no time logged" email as of `reference_date`
 /// (YYYY-MM-DD). The app never sends this itself — the caller copies it or hands it to
 /// the user's own mail client.
@@ -305,7 +312,10 @@ pub fn generate_no_time_email(
 ) -> DomainResult<NoTimeEmailPreview> {
     let template = get_email_template(conn, template_id)?;
     let reference: NaiveDate = reference_date.parse().map_err(|e| format!("invalid date: {e}"))?;
-    let (start, end) = resolve_date_range_preset(&template.date_range, reference)?;
+    // The email spans every client, so there is no single client's pay week to use;
+    // the profile setting is the same fallback the Entries page week filters use.
+    let week_start = parse_weekday(&week_start_from_profile(conn));
+    let (start, end) = resolve_date_range_preset(&template.date_range, reference, week_start)?;
     let (from, to) = to_local_date_bounds(start, end);
 
     let contracts = idle_contracts(conn, &from, &to, template.contract_id)?;
