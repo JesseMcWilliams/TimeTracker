@@ -198,7 +198,7 @@
       >
     </div>
 
-    <div class="row">
+    <div class="row danger-row">
       <button onclick={archive} disabled={busy} class="danger">Archive contract</button>
     </div>
   {/if}
@@ -255,6 +255,14 @@
   .row {
     display: flex;
     gap: 0.5rem;
+    margin-bottom: 0.75rem;
+  }
+  /* Archive is destructive and used to sit flush against Apply adjustment, close
+     enough to hit by mistake. The rule and the extra space separate the two. */
+  .danger-row {
+    margin-top: 2rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--border, #ddd);
   }
   .danger {
     color: #b91c1c;
